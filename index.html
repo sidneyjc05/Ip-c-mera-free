@@ -107,7 +107,7 @@
   .scan-row button:hover:not(:disabled){opacity:.9}
   .prog{width:100%;height:3px;background:rgba(0,0,0,.2);border-radius:2px;overflow:hidden;margin-bottom:12px}
   .prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--cyan));border-radius:2px;transition:width .25s;width:0%}
-  .prev-box{width:100%;flex:1;min-height:200px;background:#000;border-radius:16px;position:relative;overflow:hidden;border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+  .prev-box{width:100%;flex:1;min-height:200px;aspect-ratio:16/9;background:#000;border-radius:16px;position:relative;overflow:hidden;border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
   .prev-box.portrait{aspect-ratio:9/16!important;flex:none;height:auto}
   .prev-box.live{border-color:rgba(16,185,129,.3);box-shadow:0 0 30px rgba(16,185,129,.05)}
   .prev-box canvas{width:100%;height:100%;object-fit:contain;display:block}
@@ -476,12 +476,44 @@
 
 <script type="module">
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, setDoc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, query, where, serverTimestamp, getDocFromServer } from "firebase/firestore";
 import firebaseConfig from "/firebase-applet-config.json";
 
 // INICIALIZAÇÃO DO FIREBASE
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || "(default)");
+
+// TIPOS DE OPERAÇÃO E MANIPULADOR DE ERROS FIRESTORE
+const OperationType = {
+  CREATE: "create",
+  UPDATE: "update",
+  DELETE: "delete",
+  LIST: "list",
+  GET: "get",
+  WRITE: "write"
+};
+
+function handleFirestoreError(error, operationType, path) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: { userId: null, email: null, emailVerified: null, isAnonymous: null, tenantId: null, providerInfo: [] },
+    operationType,
+    path
+  };
+  console.error("Firestore Error Detailed Info:", JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, "test", "connection"));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("the client is offline")) {
+      console.warn("Firestore client is offline. Please check your network connection.");
+    }
+  }
+}
+testConnection();
 
 let pendingViewerTargetId = null;
 
@@ -507,7 +539,17 @@ function iceToObj(cand){
 }
 function objToIce(o){return o?new RTCIceCandidate({candidate:o.candidate,sdpMid:o.sdpMid,sdpMLineIndex:o.sdpMLineIndex,usernameFragment:o.usernameFragment}):null;}
 
-const ICE_SERVERS = [{urls:['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']}];
+// Servidores STUN de alto desempenho e confiabilidade para NAT traversal local/global
+const ICE_SERVERS = [{
+  urls: [
+    "stun:stun.l.google.com:19302",
+    "stun:stun1.l.google.com:19302",
+    "stun:stun2.l.google.com:19302",
+    "stun:stun3.l.google.com:19302",
+    "stun:stun4.l.google.com:19302",
+    "stun:stun.services.mozilla.com"
+  ]
+}];
 
 let devices=[], selDevId=null, rawStream=null, vidEl=null, cvsEl=null, ctx=null;
 let drawing=false, recording=false, motionOn=false, flashOn=false, broadcasting=false;
@@ -764,19 +806,21 @@ async function startViewerSignaling(targetId) {
   });
 
   const candidatesRef = collection(db, "streams", targetId, "viewers", viewerId, "candidates");
-  const q = query(candidatesRef, where("sender", "==", "broadcaster"));
-  viewerCandidatesUnsubscribe = onSnapshot(q, (snapshot) => {
+  viewerCandidatesUnsubscribe = onSnapshot(candidatesRef, (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === "added") {
-        const candData = change.doc.data().candidate;
-        if (vPC.remoteDescription) {
-          try {
-            await vPC.addIceCandidate(objToIce(candData));
-          } catch (err) {
-            console.error("Erro ao adicionar candidato do transmissor:", err);
+        const docData = change.doc.data();
+        if (docData.sender === "broadcaster") {
+          const candData = docData.candidate;
+          if (vPC.remoteDescription) {
+            try {
+              await vPC.addIceCandidate(objToIce(candData));
+            } catch (err) {
+              console.error("Erro ao adicionar candidato do transmissor:", err);
+            }
+          } else {
+            bufferedBroadcasterCandidates.push(candData);
           }
-        } else {
-          bufferedBroadcasterCandidates.push(candData);
         }
       }
     });
@@ -828,21 +872,36 @@ async function startScan(){
 }
 
 async function startScreenShare(){
-  const wasBroadcasting = broadcasting;
-  if (wasBroadcasting) {
-    try { stopBroadcast(); } catch (e) {}
-  }
   try{
-    rawStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+    
+    // Stop raw stream camera tracks
+    if (rawStream) {
+      rawStream.getTracks().forEach(t => t.stop());
+    }
+    
+    rawStream = screenStream;
     screenShareMode=true; selDevId='screen'; renderCamList();
+    
     const track=rawStream.getVideoTracks()[0];
-    track.onended=()=>{ stopStreamInternal(); screenShareMode=false; };
+    track.onended=()=>{
+      stopStreamInternal();
+      screenShareMode=false;
+      if (devices.length > 0) {
+        selectDev(devices[0].deviceId);
+      }
+    };
+    
     const cur=track.getSettings();
     document.getElementById('iId').textContent='screen'; document.getElementById('iLabel').textContent=track.label||'Tela';
     document.getElementById('sRes').textContent=(cur.width||1920)+'x'+(cur.height||1080);
     document.getElementById('sFps').textContent=Math.round(cur.frameRate||30);
+    
     setupPreview(cur.width||1920,cur.height||1080);
-    if(wasBroadcasting)setTimeout(()=>startBroadcast(),500);
+    
+    if (broadcasting) {
+      updateBroadcastTracks();
+    }
   }catch(err){toast('Compartilhamento cancelado.');}
 }
 
@@ -860,25 +919,38 @@ function renderCamList(){
 }
 
 async function selectDev(id){
-  const wasBroadcasting = broadcasting;
-  if (wasBroadcasting) {
-    try { stopBroadcast(); } catch (e) {}
+  if (screenShareMode && rawStream) {
+    rawStream.getTracks().forEach(t => t.stop());
   }
-  if(rawStream)rawStream.getTracks().forEach(t=>t.stop());
-  if(animId)cancelAnimationFrame(animId);
-  stopBroadcastInternal(); if(vidEl){vidEl.remove();vidEl=null;} prevFrame=null;motionLvl=0;
+  if (rawStream) {
+    rawStream.getTracks().forEach(t => {
+      if (t.label !== 'Screen' && t.label !== 'window' && t.label !== 'web-contents') {
+        t.stop();
+      }
+    });
+  }
+  if(vidEl){vidEl.remove();vidEl=null;} prevFrame=null;motionLvl=0;
   selDevId=id;renderCamList(); screenShareMode=false;
+  
   const[w,h]=cfg.res.split('x').map(Number);
-  try{ rawStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id},width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});
-  }catch(err){ try{rawStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});}catch(e2){toast('Erro: '+e2.message);return;} }
+  try{ 
+    rawStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id},width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});
+  }catch(err){ 
+    try{rawStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});}catch(e2){toast('Erro: '+e2.message);return;} 
+  }
+  
   const track=rawStream.getVideoTracks()[0];
   const caps=track.getCapabilities?track.getCapabilities():{}; const cur=track.getSettings?track.getSettings():{};
   track.onmute = () => toast('Aviso: Câmera pausada pelo Android (aba oculta).');
   track.onunmute = () => toast('Câmera retomada.');
   document.getElementById('iId').textContent=id.slice(0,12)+'...'; document.getElementById('iLabel').textContent=track.label||'—';
   document.getElementById('sRes').textContent=(cur.width||w)+'x'+(cur.height||h);
+  
   setupPreview(cur.width||w,cur.height||h); saveSettings();
-  if(wasBroadcasting)setTimeout(()=>startBroadcast(),500);
+  
+  if (broadcasting) {
+    updateBroadcastTracks();
+  }
 }
 
 function stopStreamInternal(){
@@ -887,7 +959,65 @@ function stopStreamInternal(){
   document.getElementById('prevBox').classList.remove('live'); document.getElementById('liveBadge').style.display='none';
 }
 
+function updateBroadcastTracks() {
+  if (!broadcasting || !bcStream) return;
+
+  // 1. Limpar tracks de áudio existentes no bcStream
+  const existingAudioTracks = bcStream.getAudioTracks();
+  existingAudioTracks.forEach(track => {
+    try {
+      track.stop();
+      bcStream.removeTrack(track);
+    } catch (e) {}
+  });
+
+  // 2. Adicionar nova track de áudio se estiver ativado
+  const newAudioTrack = audioEnabled && rawStream ? rawStream.getAudioTracks()[0] : null;
+  if (newAudioTrack) {
+    try {
+      bcStream.addTrack(newAudioTrack);
+    } catch (e) {
+      console.warn("Erro ao adicionar track de áudio ao bcStream:", e);
+    }
+  }
+
+  // 3. Atualizar todas as conexões peer ativas de forma transparente
+  const pcsToUpdate = [bcPC, ...Array.from(peerConnections.values())].filter(Boolean);
+  pcsToUpdate.forEach(pc => {
+    const senders = pc.getSenders();
+    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
+    const newVideoTrack = bcStream.getVideoTracks()[0];
+    if (videoSender && newVideoTrack && videoSender.track !== newVideoTrack) {
+      videoSender.replaceTrack(newVideoTrack).catch(e => console.warn("Erro ao substituir track de vídeo:", e));
+    }
+
+    if (newAudioTrack) {
+      if (audioSender) {
+        audioSender.replaceTrack(newAudioTrack).catch(e => console.warn("Erro ao substituir track de áudio:", e));
+      } else {
+        try {
+          pc.addTrack(newAudioTrack, bcStream);
+        } catch (e) {
+          console.warn("Erro ao adicionar track de áudio:", e);
+        }
+      }
+    } else if (audioSender) {
+      try {
+        pc.removeTrack(audioSender);
+      } catch (e) {
+        console.warn("Erro ao remover track de áudio:", e);
+      }
+    }
+  });
+}
+
 function setupPreview(w,h){
+  if (animId) {
+    cancelAnimationFrame(animId);
+    animId = null;
+  }
   const box=document.getElementById('prevBox');
   box.innerHTML='';box.classList.add('live');
   if(orientation==='portrait')box.classList.add('portrait'); else box.classList.remove('portrait');
@@ -1156,22 +1286,24 @@ async function setupBroadcasterPeerConnection(viewerId) {
     });
 
     const candidatesRef = collection(db, "streams", VID, "viewers", viewerId, "candidates");
-    const q = query(candidatesRef, where("sender", "==", "viewer"));
-    const unsub = onSnapshot(q, (snapshot) => {
+    const unsub = onSnapshot(candidatesRef, (snapshot) => {
       snapshot.docChanges().forEach(async (change) => {
         if (change.type === "added") {
-          const candData = change.doc.data().candidate;
-          if (pc.remoteDescription) {
-            try {
-              await pc.addIceCandidate(objToIce(candData));
-            } catch (err) {
-              console.error(`Erro ao aplicar candidato ICE do visualizador ${viewerId}:`, err);
+          const docData = change.doc.data();
+          if (docData.sender === "viewer") {
+            const candData = docData.candidate;
+            if (pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(objToIce(candData));
+              } catch (err) {
+                console.error(`Erro ao aplicar candidato ICE do visualizador ${viewerId}:`, err);
+              }
+            } else {
+              if (!bufferedCandidates.has(viewerId)) {
+                bufferedCandidates.set(viewerId, []);
+              }
+              bufferedCandidates.get(viewerId).push(candData);
             }
-          } else {
-            if (!bufferedCandidates.has(viewerId)) {
-              bufferedCandidates.set(viewerId, []);
-            }
-            bufferedCandidates.get(viewerId).push(candData);
           }
         }
       });
