@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Viewer Session Validation
+    function isValidViewerSession(data) {
+      return data.keys().hasAll(['viewerId', 'state', 'createdAt'])
+        && data.keys().size() <= 6
+        && data.viewerId is string
+        && data.viewerId.size() <= 128
+        && data.state is string
+        && (data.state == 'request_offer' || data.state == 'offer_sent' || data.state == 'answer_sent' || data.state == 'closed')
+        && (!('offer' in data) || data.offer == null || (data.offer is map && data.offer.get('sdp', '').size() <= 65536))
+        && (!('answer' in data) || data.answer == null || (data.answer is map && data.answer.get('sdp', '').size() <= 65536));
+    }
+
+    // ICE Candidate Validation
+    function isValidIceCandidate(data) {
+      return data.keys().hasAll(['sender', 'candidate', 'createdAt'])
+        && data.keys().size() <= 4
+        && (data.sender == 'broadcaster' || data.sender == 'viewer')
+        && data.candidate is map
+        && (data.candidate.get('candidate', '') is string && data.candidate.get('candidate', '').size() <= 2048);
+    }
+
+    // Match rules for streams
+    match /streams/{streamId} {
+      allow get, write: if isValidId(streamId);
+
+      match /viewers/{viewerId} {
+        allow get: if isValidId(streamId) && isValidId(viewerId);
+        allow list: if isValidId(streamId);
+        
+        allow create: if isValidId(streamId) && isValidId(viewerId)
+          && isValidViewerSession(request.resource.data)
+          && request.resource.data.state == 'request_offer'
+          && request.resource.data.createdAt == request.time;
+
+        allow update: if isValidId(streamId) && isValidId(viewerId)
+          && isValidViewerSession(request.resource.data)
+          && request.resource.data.updatedAt == request.time;
+
+        allow delete: if isValidId(streamId) && isValidId(viewerId);
+
+        match /candidates/{candidateId} {
+          allow get: if isValidId(streamId) && isValidId(viewerId) && isValidId(candidateId);
+          allow list: if isValidId(streamId) && isValidId(viewerId);
+          
+          allow create: if isValidId(streamId) && isValidId(viewerId) && isValidId(candidateId)
+            && isValidIceCandidate(request.resource.data)
+            && request.resource.data.createdAt == request.time;
+        }
+      }
+    }
+  }
+}

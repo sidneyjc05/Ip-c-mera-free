@@ -1,0 +1,11 @@
+{
+  "name": "IP Camera Hub v4",
+  "description": "Transmissão P2P com WebRTC Avançado",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
