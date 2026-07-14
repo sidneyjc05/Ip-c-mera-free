@@ -238,8 +238,12 @@
     <div style="font-size:15px;font-weight:600;color:var(--text2)">Aguardando transmissão...</div>
     <div style="font-size:12px;color:var(--text3)">ID: <span id="vIdDisp" style="color:var(--accent);font-weight:700">—</span></div>
     <div style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center;max-width:320px;line-height:1.5">
-      Se não conectar automaticamente, use a Conexão Manual abaixo.
+      Se não conectar automaticamente, use a Conexão Manual abaixo ou ative a otimização de IP local se estiver na mesma rede Wi-Fi.
     </div>
+    <button id="vOptimizeBtn" onclick="optimizeLocalIPs()" style="margin-top: 14px; padding: 10px 18px; background: rgba(16, 185, 129, 0.15); color: var(--accent); border: 1px solid var(--accent-g); border-radius: var(--rxs); font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.2s; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16,185,129,0.1);">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      Otimizar Conexão Local Wi-Fi (Revelar IP)
+    </button>
   </div>
   <button class="v-toggle-manual" id="vToggleManual" onclick="toggleManualPanel()">Conexão Manual</button>
   <div class="v-manual" id="vManual">
@@ -595,6 +599,7 @@ let vPC = null;
 let currentViewerId = null;
 let viewerUnsubscribe = null;
 let viewerCandidatesUnsubscribe = null;
+let streamStatusUnsubscribe = null;
 
 async function initView(){
   document.body.classList.add('view-mode');
@@ -617,6 +622,29 @@ async function initView(){
       fpsEl.textContent = '0 FPS';
     }
   }, 1000);
+
+  // Monitorar se o transmissor está online em tempo real no Firestore
+  if (streamStatusUnsubscribe) {
+    try { streamStatusUnsubscribe(); } catch(e) {}
+  }
+  const streamDocRef = doc(db, "streams", targetId);
+  streamStatusUnsubscribe = onSnapshot(streamDocRef, (docSnap) => {
+    const statusTxt = document.getElementById('vStatusTxt');
+    const dot = document.getElementById('vDot');
+    if (docSnap.exists() && docSnap.data().active) {
+      console.log("Transmissor detectado como ONLINE no Firestore!");
+      if (vPC && vPC.connectionState !== 'connected') {
+        statusTxt.textContent = "Transmissor Online (Conectando...)";
+        dot.classList.add('on');
+      }
+    } else {
+      console.log("Transmissor detectado como OFFLINE no Firestore.");
+      statusTxt.textContent = "Aguardando Transmissão (Offline)";
+      dot.classList.remove('on');
+    }
+  }, (err) => {
+    console.error("Erro ao escutar status do stream:", err);
+  });
 
   startViewerConnection(targetId);
 }
@@ -899,7 +927,12 @@ async function startScreenShare(){
     
     setupPreview(cur.width||1920,cur.height||1080);
     
-    if (broadcasting) {
+    if (!broadcasting) {
+      console.log("Auto-iniciando transmissão para compartilhamento de tela...");
+      setTimeout(() => {
+        startBroadcast().catch(err => console.error("Erro no auto-broadcast da tela:", err));
+      }, 150);
+    } else {
       updateBroadcastTracks();
     }
   }catch(err){toast('Compartilhamento cancelado.');}
@@ -948,7 +981,12 @@ async function selectDev(id){
   
   setupPreview(cur.width||w,cur.height||h); saveSettings();
   
-  if (broadcasting) {
+  if (!broadcasting) {
+    console.log("Auto-iniciando transmissão...");
+    setTimeout(() => {
+      startBroadcast().catch(err => console.error("Erro no auto-broadcast:", err));
+    }, 150);
+  } else {
     updateBroadcastTracks();
   }
 }
@@ -1090,6 +1128,7 @@ function setRotation(btn,deg){ camRotation=deg; btn.parentElement.querySelectorA
 // TRANSMISSÃO P2P WEBRTC (VDO Ninja Style)
 async function toggleBroadcast(){ if(broadcasting)stopBroadcast(); else await startBroadcast(); }
 async function startBroadcast(){
+  if(broadcasting) return;
   if(!cvsEl){toast('Inicie uma câmera primeiro');return;}
   try{ bcStream=cvsEl.captureStream(cfg.fps); if(audioEnabled && rawStream) rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t)); }catch(e){return;}
   bcPC=new RTCPeerConnection({iceServers:ICE_SERVERS}); bcPC.pendingCandidates=[];
@@ -1433,6 +1472,22 @@ function loadSettings(){
   });
 }
 
+async function optimizeLocalIPs() {
+  try {
+    toast("Otimizando conexão local... Por favor, conceda permissão de microfone se solicitado.");
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop());
+    toast("Otimizado com sucesso! IPs locais revelados para a rede Wi-Fi.");
+    
+    // Reiniciar conexão do viewer com os novos candidatos ICE não-mascarados
+    const targetId = getParam('view') || VID;
+    startViewerConnection(targetId);
+  } catch (err) {
+    console.warn("Permissão de microfone negada ou indisponível:", err);
+    toast("Conexão não pôde ser otimizada. Usando fallback mDNS padrão.");
+  }
+}
+
 // Expose functions to the window object for HTML inline onclick handlers
 Object.assign(window, {
   toggleManualPanel,
@@ -1458,7 +1513,8 @@ Object.assign(window, {
   takePhoto,
   toggleFlash,
   copyLink,
-  openViewTab
+  openViewTab,
+  optimizeLocalIPs
 });
 
 (function init(){
