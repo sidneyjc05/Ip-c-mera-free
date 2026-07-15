@@ -411,7 +411,7 @@
               </div>
             </div>
             <div class="ctrl-row"><div class="ctrl-lbl">Qualidade</div><div class="ctrl-body"><input type="range" id="rQuality" min="10" max="100" value="85" oninput="setSetting('quality',this.value)" /></div><div class="val-disp" id="vQuality">85%</div></div>
-            <div class="ctrl-row"><div class="ctrl-lbl">FPS Max</div><div class="ctrl-body"><input type="range" id="rFps" min="1" max="60" value="30" oninput="setSetting('fps',this.value)" /></div><div class="val-disp" id="vFps">30</div></div>
+            <div class="ctrl-row"><div class="ctrl-lbl">FPS Max</div><div class="ctrl-body"><input type="range" id="rFps" min="1" max="60" value="30" oninput="setSetting('fps',this.value)" /></div><div class="val-disp" id="vFpsVal">30</div></div>
             <div class="ctrl-row"><div class="ctrl-lbl">Noturno</div>
               <div class="ctrl-body">
                 <div class="tog-grp">
@@ -998,55 +998,60 @@ function stopStreamInternal(){
 }
 
 function updateBroadcastTracks() {
-  if (!broadcasting || !bcStream) return;
+  if (!broadcasting) return;
 
-  // 1. Limpar tracks de áudio existentes no bcStream
-  const existingAudioTracks = bcStream.getAudioTracks();
-  existingAudioTracks.forEach(track => {
+  // Re-capturar o stream do canvas com o FPS atualizado se cvsEl existir
+  if (cvsEl) {
     try {
-      track.stop();
-      bcStream.removeTrack(track);
-    } catch (e) {}
-  });
-
-  // 2. Adicionar nova track de áudio se estiver ativado
-  const newAudioTrack = audioEnabled && rawStream ? rawStream.getAudioTracks()[0] : null;
-  if (newAudioTrack) {
-    try {
-      bcStream.addTrack(newAudioTrack);
+      if (bcStream) {
+        // Parar tracks antigas de vídeo para liberar recursos
+        bcStream.getVideoTracks().forEach(t => { try { t.stop(); } catch(e) {} });
+      }
+      bcStream = cvsEl.captureStream(cfg.fps || 30);
+      if (audioEnabled && rawStream) {
+        rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t));
+      }
     } catch (e) {
-      console.warn("Erro ao adicionar track de áudio ao bcStream:", e);
+      console.error("Erro ao recapturar stream do canvas:", e);
     }
   }
 
-  // 3. Atualizar todas as conexões peer ativas de forma transparente
+  if (!bcStream) return;
+
+  // Atualizar todas as conexões peer ativas de forma transparente
   const pcsToUpdate = [bcPC, ...Array.from(peerConnections.values())].filter(Boolean);
   pcsToUpdate.forEach(pc => {
-    const senders = pc.getSenders();
-    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    try {
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
 
-    const newVideoTrack = bcStream.getVideoTracks()[0];
-    if (videoSender && newVideoTrack && videoSender.track !== newVideoTrack) {
-      videoSender.replaceTrack(newVideoTrack).catch(e => console.warn("Erro ao substituir track de vídeo:", e));
-    }
+      const newVideoTrack = bcStream.getVideoTracks()[0];
+      if (videoSender && newVideoTrack) {
+        videoSender.replaceTrack(newVideoTrack).then(() => {
+          try {
+            const params = videoSender.getParameters() || {};
+            if (!params.encodings) params.encodings = [{}];
+            params.encodings[0].maxBitrate = cfg.bitrate * 1000;
+            params.encodings[0].maxFramerate = cfg.fps;
+            params.degradationPreference = 'maintain-framerate';
+            videoSender.setParameters(params).catch(()=>{});
+          } catch (e) {}
+        }).catch(e => console.warn("Erro ao substituir track de vídeo:", e));
+      }
 
-    if (newAudioTrack) {
-      if (audioSender) {
-        audioSender.replaceTrack(newAudioTrack).catch(e => console.warn("Erro ao substituir track de áudio:", e));
-      } else {
-        try {
+      const newAudioTrack = audioEnabled && rawStream ? rawStream.getAudioTracks()[0] : null;
+      if (newAudioTrack) {
+        if (audioSender) {
+          audioSender.replaceTrack(newAudioTrack).catch(e => console.warn("Erro ao substituir track de áudio:", e));
+        } else {
           pc.addTrack(newAudioTrack, bcStream);
-        } catch (e) {
-          console.warn("Erro ao adicionar track de áudio:", e);
         }
-      }
-    } else if (audioSender) {
-      try {
+      } else if (audioSender) {
         pc.removeTrack(audioSender);
-      } catch (e) {
-        console.warn("Erro ao remover track de áudio:", e);
       }
+    } catch (err) {
+      console.warn("Erro ao atualizar tracks:", err);
     }
   });
 }
@@ -1065,7 +1070,7 @@ function setupPreview(w,h){
   cvsEl=document.createElement('canvas');
   if(orientation==='portrait'){cvsEl.width=Math.min(w,h);cvsEl.height=Math.max(w,h);}else{cvsEl.width=w;cvsEl.height=h;}
   cvsEl.style.width='100%';cvsEl.style.height='100%';
-  ctx=cvsEl.getContext('2d',{willReadFrequently:true}); box.appendChild(cvsEl);
+  ctx=cvsEl.getContext('2d'); box.appendChild(cvsEl);
   const ol=document.createElement('div');ol.className='prev-ol';ol.innerHTML='<div class="rec-dot"></div><span>LIVE</span>';box.appendChild(ol);
   const fp=document.createElement('div');fp.className='prev-fps';fp.id='pFps';fp.textContent='0 FPS';box.appendChild(fp);
   drawing=true;lastFpsT=performance.now();fpsCount=0; drawLoop();
@@ -1079,9 +1084,13 @@ function drawLoop(fromWorker = false){
     if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
     return;
   }
-  let f=`brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%)`;
-  if(nightMode)f+=' grayscale(70%) sepia(25%) brightness(130%)';
-  ctx.filter=f; ctx.save();
+  let f='';
+  if(filters.brightness!==100) f+=`brightness(${filters.brightness}%) `;
+  if(filters.contrast!==100) f+=`contrast(${filters.contrast}%) `;
+  if(filters.saturation!==100) f+=`saturate(${filters.saturation}%) `;
+  if(nightMode) f+='grayscale(70%) sepia(25%) brightness(130%) ';
+  
+  ctx.filter=f.trim()!==''?f.trim():'none'; ctx.save();
   const cx=cvsEl.width/2,cy=cvsEl.height/2; ctx.translate(cx,cy);
   if(flipH)ctx.scale(-1,1); if(camRotation!==0)ctx.rotate(camRotation*Math.PI/180);
   const vw=vidEl.videoWidth||vidEl.width||cvsEl.width, vh=vidEl.videoHeight||vidEl.height||cvsEl.height;
@@ -1098,14 +1107,22 @@ function drawLoop(fromWorker = false){
   if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
 }
 
+let motionCanvas = null, motionCtx = null;
 function detectMotion(){
   if(!ctx||!cvsEl)return;
   try{
-    const cur=ctx.getImageData(0,0,cvsEl.width,cvsEl.height), cd=cur.data;
-    if(prevFrame){
-      let diff=0,samples=0,step=40;
+    if(!motionCanvas){
+      motionCanvas=document.createElement('canvas');
+      motionCanvas.width=80;
+      motionCanvas.height=60;
+      motionCtx=motionCanvas.getContext('2d',{willReadFrequently:true});
+    }
+    motionCtx.drawImage(cvsEl,0,0,80,60);
+    const cur=motionCtx.getImageData(0,0,80,60), cd=cur.data;
+    if(prevFrame && prevFrame.length === cd.length){
+      let diff=0,samples=0,step=4;
       for(let i=0;i<cd.length;i+=step){ diff+=(Math.abs(cd[i]-prevFrame[i])+Math.abs(cd[i+1]-prevFrame[i+1])+Math.abs(cd[i+2]-prevFrame[i+2]))/3;samples++; }
-      motionLvl=Math.min(100,Math.round((diff/Math.max(1,samples))*1.5));
+      motionLvl=Math.min(100,Math.round((diff/Math.max(1,samples))*3));
       const moEl=document.getElementById('prevMo'), bar=document.getElementById('moBar'), lbl=document.getElementById('moLabel');
       if(moEl){ moEl.classList.toggle('show',motionLvl>2); bar.style.width=motionLvl+'%'; lbl.textContent=motionLvl+'%'; bar.style.background=motionLvl>30?'var(--danger)':motionLvl>15?'var(--warn)':'var(--accent)'; }
     }
@@ -1115,7 +1132,24 @@ function detectMotion(){
 
 function toggleMotion(){ motionOn=!motionOn;prevFrame=null;motionLvl=0; document.getElementById('moBtn').classList.toggle('on',motionOn); document.getElementById('moTxt').textContent=motionOn?'Parar Mov':'Movimento'; if(!motionOn){document.getElementById('prevMo').classList.remove('show');} }
 function setFilter(k,v){ filters[k]=Number(v); document.getElementById('v'+k.charAt(0).toUpperCase()+k.slice(1)).textContent=v+'%'; saveSettings(); }
-function setSetting(k,v){ cfg[k]=Number(v); document.getElementById('v'+k.charAt(0).toUpperCase()+k.slice(1)).textContent=v+(k==='fps'?'':'%'); saveSettings(); }
+function setSetting(k,v){
+  cfg[k]=Number(v);
+  const elId = k === 'fps' ? 'vFpsVal' : 'v'+k.charAt(0).toUpperCase()+k.slice(1);
+  const el = document.getElementById(elId);
+  if (el) el.textContent = v + (k==='fps'?'':'%');
+  saveSettings();
+  if (k === 'fps') {
+    if (rawStream) {
+      const track = rawStream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        track.applyConstraints({ frameRate: { ideal: cfg.fps, max: cfg.fps } }).catch(e => console.warn(e));
+      }
+    }
+    if (broadcasting) {
+      updateBroadcastTracks();
+    }
+  }
+}
 function setCodec(v){ cfg.codec=v; saveSettings(); if(broadcasting) { stopBroadcast(); setTimeout(()=>startBroadcast(), 100); } }
 function setBitrate(v){ cfg.bitrate=Number(v); document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M'; saveSettings(); }
 function setAudio(btn,on){ audioEnabled=on; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); saveSettings(); if(selDevId)selectDev(selDevId); }
@@ -1143,6 +1177,8 @@ async function startBroadcast(){
         const params = sender.getParameters() || {};
         if (!params.encodings) params.encodings = [{}];
         params.encodings[0].maxBitrate = cfg.bitrate * 1000;
+        params.encodings[0].maxFramerate = cfg.fps;
+        params.degradationPreference = 'maintain-framerate';
         
         if (cfg.codec !== 'auto' && window.RTCRtpSender && RTCRtpSender.getCapabilities) {
           const codecs = RTCRtpSender.getCapabilities('video').codecs;
@@ -1263,20 +1299,26 @@ async function setupBroadcasterPeerConnection(viewerId) {
     bcStream.getTracks().forEach(t => {
       const sender = pc.addTrack(t, bcStream);
       if (t.kind === 'video') {
-        const params = sender.getParameters();
-        if (!params.encodings) params.encodings = [{}];
-        params.encodings[0].maxBitrate = cfg.bitrate * 1000;
-        sender.setParameters(params).catch(e => console.warn("Erro ao setar bitrate:", e));
-        
-        if (cfg.codec !== 'auto' && window.RTCRtpSender && RTCRtpSender.getCapabilities) {
-          const codecs = RTCRtpSender.getCapabilities('video').codecs;
-          const selectedCodecs = [];
-          codecs.forEach(c => {
-            if (c.mimeType === 'video/' + cfg.codec) selectedCodecs.push(c);
-          });
-          if (selectedCodecs.length > 0) {
-            sender.setParameters({...params, codecs: [...selectedCodecs, ...codecs.filter(c => c.mimeType !== 'video/' + cfg.codec)]}).catch(e=>console.warn("Erro ao setar codec:", e));
+        try {
+          const params = sender.getParameters() || {};
+          if (!params.encodings) params.encodings = [{}];
+          params.encodings[0].maxBitrate = cfg.bitrate * 1000;
+          params.encodings[0].maxFramerate = cfg.fps;
+          params.degradationPreference = 'maintain-framerate';
+          sender.setParameters(params).catch(e => console.warn("Erro ao setar parâmetros:", e));
+          
+          if (cfg.codec !== 'auto' && window.RTCRtpSender && RTCRtpSender.getCapabilities) {
+            const codecs = RTCRtpSender.getCapabilities('video').codecs;
+            const selectedCodecs = [];
+            codecs.forEach(c => {
+              if (c.mimeType === 'video/' + cfg.codec) selectedCodecs.push(c);
+            });
+            if (selectedCodecs.length > 0) {
+              sender.setParameters({...params, codecs: [...selectedCodecs, ...codecs.filter(c => c.mimeType !== 'video/' + cfg.codec)]}).catch(e=>console.warn("Erro ao setar codec:", e));
+            }
           }
+        } catch (e) {
+          console.warn("Erro ao configurar parâmetros do track de vídeo para visualizador:", e);
         }
       }
     });
@@ -1462,7 +1504,12 @@ function loadSettings(){
   if(s.filters)Object.assign(filters,s.filters); if(s.flipH!==undefined)flipH=s.flipH; if(s.nightMode!==undefined)nightMode=s.nightMode;
   if(s.cfg)Object.assign(cfg,s.cfg); if(s.orientation)orientation=s.orientation; if(s.camRotation!==undefined)camRotation=s.camRotation; if(s.audioEnabled!==undefined)audioEnabled=s.audioEnabled;
   ['Brightness','Contrast','Saturation','Sharpness'].forEach(k=>{ document.getElementById('r'+k).value=filters[k.toLowerCase()]; document.getElementById('v'+k).textContent=filters[k.toLowerCase()]+'%'; });
-  document.getElementById('rQuality').value=cfg.quality; document.getElementById('rFps').value=cfg.fps; document.getElementById('rBitrate').value=cfg.bitrate; document.getElementById('selCodec').value=cfg.codec;
+  document.getElementById('rQuality').value=cfg.quality; document.getElementById('vQuality').textContent=cfg.quality+'%';
+  document.getElementById('rFps').value=cfg.fps;
+  const vFpsValEl = document.getElementById('vFpsVal');
+  if (vFpsValEl) vFpsValEl.textContent = cfg.fps;
+  document.getElementById('rBitrate').value=cfg.bitrate; document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M';
+  document.getElementById('selCodec').value=cfg.codec;
   document.querySelectorAll('#resGrp .tog-btn').forEach(b=>{ b.classList.toggle('on',b.dataset.r===cfg.res); });
   document.querySelectorAll('.ctrl-row').forEach(row=>{
     const lbl=row.querySelector('.ctrl-lbl');
