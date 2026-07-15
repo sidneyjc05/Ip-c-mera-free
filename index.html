@@ -318,10 +318,15 @@
     z-index: 9;
   }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
-  @media (max-width: 900px), (max-height: 600px) {
-    #viewPanel .v-badge,
+  #viewPanel .v-badge, #viewPanel .v-toggle-manual {
+    display: none !important;
+  }
+  @media (min-width: 1024px) and (min-height: 768px) {
+    #viewPanel .v-badge, #viewPanel .v-toggle-manual {
+      display: flex !important;
+    }
     #viewPanel .v-toggle-manual {
-      display: none !important;
+      display: inline-block !important;
     }
   }
 </style>
@@ -1325,7 +1330,7 @@ function setupPreview(w,h){
 
   const ol=document.createElement('div');ol.className='prev-ol';ol.innerHTML='<div class="rec-dot"></div><span>LIVE</span>';box.appendChild(ol);
   const fp=document.createElement('div');fp.className='prev-fps';fp.id='pFps';fp.textContent='0 FPS';box.appendChild(fp);
-  drawing=true;lastFpsT=performance.now();fpsCount=0; lastDrawT=performance.now(); drawLoop();
+  drawing=true;lastFpsT=performance.now();fpsCount=0; drawLoop();
 }
 
 function drawLoop(fromWorker = false){
@@ -1333,18 +1338,13 @@ function drawLoop(fromWorker = false){
   if(fromWorker && !document.hidden)return;
   
   if(vidEl.readyState<2){
-    if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
+    if(!document.hidden) {
+      if ('requestVideoFrameCallback' in vidEl) vidEl.requestVideoFrameCallback(() => drawLoop(false));
+      else animId=requestAnimationFrame(() => drawLoop(false));
+    }
     return;
   }
   
-  const now = performance.now();
-  const fpsInterval = 1000 / (cfg.fps || 30);
-  if (now - lastDrawT < fpsInterval) {
-    if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
-    return;
-  }
-  lastDrawT = now - ((now - lastDrawT) % fpsInterval);
-
   let f='';
   if(filters.brightness!==100) f+=`brightness(${filters.brightness}%) `;
   if(filters.contrast!==100) f+=`contrast(${filters.contrast}%) `;
@@ -1353,7 +1353,7 @@ function drawLoop(fromWorker = false){
   
   ctx.filter=f.trim()!==''?f.trim():'none'; ctx.save();
   const cx=cvsEl.width/2,cy=cvsEl.height/2; ctx.translate(cx,cy);
-  if(flipH)ctx.scale(-1,1); if(camRotation!==0)ctx.rotate(camRotation*Math.PI/180);
+  if(flipH || viewerFlipH)ctx.scale(-1,1); if(camRotation!==0)ctx.rotate(camRotation*Math.PI/180);
   const vw=vidEl.videoWidth||vidEl.width||cvsEl.width, vh=vidEl.videoHeight||vidEl.height||cvsEl.height;
   let scale=Math.max(cvsEl.width/vw,cvsEl.height/vh), dw=vw*scale, dh=vh*scale;
   ctx.drawImage(vidEl,-dw/2,-dh/2,dw,dh); ctx.restore();
@@ -1365,7 +1365,10 @@ function drawLoop(fromWorker = false){
   fpsCount++; const now2=performance.now();
   if(now2-lastFpsT>=1000){ const el=document.getElementById('pFps'); if(el)el.textContent=fpsCount+' FPS'; fpsCount=0;lastFpsT=now2; }
   
-  if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
+  if(!document.hidden) {
+    if ('requestVideoFrameCallback' in vidEl) vidEl.requestVideoFrameCallback(() => drawLoop(false));
+    else animId=requestAnimationFrame(() => drawLoop(false));
+  }
 }
 
 let motionCanvas = null, motionCtx = null;
@@ -1874,7 +1877,6 @@ function applyViewerConfig(data) {
   if (video) {
     const fit = data.videoFit || 'contain';
     video.style.objectFit = fit;
-    video.style.transform = data.viewerFlipH ? 'scaleX(-1)' : 'none';
   }
   
   const overlay = document.getElementById('vBorderOverlay');
@@ -2155,6 +2157,7 @@ Object.assign(window, {
   setNight,
   setOrientation,
   setRotation,
+  setViewerFlip,
   toggleBroadcast,
   copyOffer,
   acceptAnswer,
