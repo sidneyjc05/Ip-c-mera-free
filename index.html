@@ -712,11 +712,35 @@ function startViewerConnection(targetId) {
     }
   };
 
+  // ONICECANDIDATE UNIFICADO (FIRESTORE + BROADCAST CHANNEL LOCAL)
+  vPC.onicecandidate = async (e) => {
+    if (!e.candidate) return;
+
+    // 1. Fallback local via BroadcastChannel (se mesmo navegador)
+    if (bcChan) {
+      try {
+        bcChan.postMessage({ type: 'candidate', candidate: iceToObj(e.candidate) });
+      } catch (err) {}
+    }
+
+    // 2. Transmitir via Firestore (remoto) se currentViewerId estiver definido
+    if (currentViewerId) {
+      try {
+        const candidateRef = collection(db, "streams", targetId, "viewers", currentViewerId, "candidates");
+        await addDoc(candidateRef, {
+          sender: "viewer",
+          candidate: iceToObj(e.candidate),
+          createdAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Erro ao salvar candidato ICE do visualizador no Firestore:", err);
+      }
+    }
+  };
+
   // INICIAR REAL-TIME SIGNALING COM FIRESTORE
   startViewerSignaling(targetId);
 
-  // FALLBACK LOCAL VIA BROADCAST CHANNEL (SE MESMO NAVEGADOR)
-  vPC.onicecandidate=e=>{ if(e.candidate&&bcChan)bcChan.postMessage({type:'candidate',candidate:iceToObj(e.candidate)}); };
   if(bcChan) { try{bcChan.close();}catch(e){} }
   bcChan=new BroadcastChannel('ipcam_'+targetId);
   bcChan.onmessage=async e=>{
@@ -752,24 +776,6 @@ async function startViewerSignaling(targetId) {
   console.log(`Iniciando sinalização do visualizador ID: ${viewerId} para stream: ${targetId}`);
 
   const bufferedBroadcasterCandidates = [];
-
-  const originalOnIceCandidate = vPC.onicecandidate;
-  vPC.onicecandidate = async (e) => {
-    if (originalOnIceCandidate) originalOnIceCandidate(e);
-    
-    if (e.candidate) {
-      try {
-        const candidateRef = collection(db, "streams", targetId, "viewers", viewerId, "candidates");
-        await addDoc(candidateRef, {
-          sender: "viewer",
-          candidate: iceToObj(e.candidate),
-          createdAt: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Erro ao salvar candidato ICE do visualizador no Firestore:", err);
-      }
-    }
-  };
 
   const sessionRef = doc(db, "streams", targetId, "viewers", viewerId);
   try {
@@ -1034,8 +1040,13 @@ function updateBroadcastTracks() {
             if (!params.encodings) params.encodings = [{}];
             params.encodings[0].maxBitrate = cfg.bitrate * 1000;
             params.encodings[0].maxFramerate = cfg.fps;
-            params.degradationPreference = 'maintain-framerate';
+            params.encodings[0].degradationPreference = 'maintain-framerate';
             videoSender.setParameters(params).catch(()=>{});
+
+            const transceiver = pc.getTransceivers().find(tr => tr.sender === videoSender);
+            if (transceiver) {
+              try { transceiver.degradationPreference = 'maintain-framerate'; } catch(err) {}
+            }
           } catch (e) {}
         }).catch(e => console.warn("Erro ao substituir track de vídeo:", e));
       }
@@ -1300,21 +1311,32 @@ async function setupBroadcasterPeerConnection(viewerId) {
       const sender = pc.addTrack(t, bcStream);
       if (t.kind === 'video') {
         try {
+          // Encontrar o transceiver para configurar prioridades modernas
+          const transceiver = pc.getTransceivers().find(tr => tr.sender === sender);
+          if (transceiver) {
+            try { transceiver.degradationPreference = 'maintain-framerate'; } catch(err) {}
+          }
+
           const params = sender.getParameters() || {};
           if (!params.encodings) params.encodings = [{}];
           params.encodings[0].maxBitrate = cfg.bitrate * 1000;
           params.encodings[0].maxFramerate = cfg.fps;
-          params.degradationPreference = 'maintain-framerate';
+          params.encodings[0].degradationPreference = 'maintain-framerate';
           sender.setParameters(params).catch(e => console.warn("Erro ao setar parâmetros:", e));
           
-          if (cfg.codec !== 'auto' && window.RTCRtpSender && RTCRtpSender.getCapabilities) {
-            const codecs = RTCRtpSender.getCapabilities('video').codecs;
-            const selectedCodecs = [];
-            codecs.forEach(c => {
-              if (c.mimeType === 'video/' + cfg.codec) selectedCodecs.push(c);
-            });
-            if (selectedCodecs.length > 0) {
-              sender.setParameters({...params, codecs: [...selectedCodecs, ...codecs.filter(c => c.mimeType !== 'video/' + cfg.codec)]}).catch(e=>console.warn("Erro ao setar codec:", e));
+          // Configurar preferência de codecs no transceiver (W3C standard)
+          if (cfg.codec !== 'auto' && transceiver && transceiver.setCodecPreferences && window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities) {
+            try {
+              const capabilities = RTCRtpReceiver.getCapabilities('video');
+              if (capabilities && capabilities.codecs) {
+                const targetMime = 'video/' + cfg.codec;
+                const matched = capabilities.codecs.filter(c => c.mimeType.toLowerCase() === targetMime.toLowerCase());
+                const unmatched = capabilities.codecs.filter(c => c.mimeType.toLowerCase() !== targetMime.toLowerCase());
+                transceiver.setCodecPreferences([...matched, ...unmatched]);
+                console.log(`Codec preference set to ${cfg.codec} on transceiver.`);
+              }
+            } catch (err) {
+              console.warn("Erro ao configurar setCodecPreferences:", err);
             }
           }
         } catch (e) {
