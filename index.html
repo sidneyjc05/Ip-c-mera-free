@@ -318,6 +318,12 @@
     z-index: 9;
   }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  @media (max-width: 900px), (max-height: 600px) {
+    #viewPanel .v-badge,
+    #viewPanel .v-toggle-manual {
+      display: none !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -460,6 +466,15 @@
             <div class="tog-grp">
               <button class="tog-btn on" onclick="setAudio(this,false)">Desligado</button>
               <button class="tog-btn" onclick="setAudio(this,true)">Ativado</button>
+            </div>
+          </div>
+        </div>
+        <div class="ctrl-row" style="margin-bottom:10px">
+          <div class="ctrl-lbl">Espelhar View</div>
+          <div class="ctrl-body">
+            <div class="tog-grp" id="viewerFlipGrp">
+              <button class="tog-btn on" onclick="setViewerFlip(this,false)">Desligado</button>
+              <button class="tog-btn" onclick="setViewerFlip(this,true)">Ativado</button>
             </div>
           </div>
         </div>
@@ -709,7 +724,7 @@ let drawing=false, recording=false, motionOn=false, flashOn=false, broadcasting=
 let flipH=false, nightMode=false, orientation='landscape', camRotation=0, audioEnabled=false, screenShareMode=false;
 let filters={brightness:100,contrast:100,saturation:100,sharpness:100};
 let cfg={res:'1280x720',quality:85,fps:30,codec:'auto',bitrate:2500};
-let animId=null, fpsCount=0, lastFpsT=0;
+let animId=null, fpsCount=0, lastFpsT=0, lastDrawT=0;
 let bcPC=null, bcStream=null, bcChan=null;
 let mediaRec=null, recChunks=[], recStart=0, recTimerInt=null;
 let prevFrame=null, motionLvl=0;
@@ -720,6 +735,7 @@ let borderEnabled = false;
 let borderPreset = 'rgb-neon';
 let customBorderSrc = '';
 let customBorderType = 'image';
+let viewerFlipH = false;
 
 let timerWorker = null;
 if (window.Worker) {
@@ -1230,7 +1246,7 @@ function updateBroadcastTracks() {
         // Parar tracks antigas de vídeo para liberar recursos
         bcStream.getVideoTracks().forEach(t => { try { t.stop(); } catch(e) {} });
       }
-      bcStream = cvsEl.captureStream(cfg.fps || 30);
+      bcStream = cvsEl.captureStream();
       if (audioEnabled && rawStream) {
         rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t));
       }
@@ -1309,7 +1325,7 @@ function setupPreview(w,h){
 
   const ol=document.createElement('div');ol.className='prev-ol';ol.innerHTML='<div class="rec-dot"></div><span>LIVE</span>';box.appendChild(ol);
   const fp=document.createElement('div');fp.className='prev-fps';fp.id='pFps';fp.textContent='0 FPS';box.appendChild(fp);
-  drawing=true;lastFpsT=performance.now();fpsCount=0; drawLoop();
+  drawing=true;lastFpsT=performance.now();fpsCount=0; lastDrawT=performance.now(); drawLoop();
 }
 
 function drawLoop(fromWorker = false){
@@ -1320,6 +1336,15 @@ function drawLoop(fromWorker = false){
     if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
     return;
   }
+  
+  const now = performance.now();
+  const fpsInterval = 1000 / (cfg.fps || 30);
+  if (now - lastDrawT < fpsInterval) {
+    if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
+    return;
+  }
+  lastDrawT = now - ((now - lastDrawT) % fpsInterval);
+
   let f='';
   if(filters.brightness!==100) f+=`brightness(${filters.brightness}%) `;
   if(filters.contrast!==100) f+=`contrast(${filters.contrast}%) `;
@@ -1337,8 +1362,8 @@ function drawLoop(fromWorker = false){
     ctx.drawImage(cvsEl,0,0,cvsEl.width,cvsEl.height);ctx.restore();ctx.filter='none';
   }
   if(motionOn&&drawing)detectMotion();
-  fpsCount++; const now=performance.now();
-  if(now-lastFpsT>=1000){ const el=document.getElementById('pFps'); if(el)el.textContent=fpsCount+' FPS'; fpsCount=0;lastFpsT=now; }
+  fpsCount++; const now2=performance.now();
+  if(now2-lastFpsT>=1000){ const el=document.getElementById('pFps'); if(el)el.textContent=fpsCount+' FPS'; fpsCount=0;lastFpsT=now2; }
   
   if(!document.hidden) animId=requestAnimationFrame(() => drawLoop(false));
 }
@@ -1395,12 +1420,19 @@ function setNight(btn,on){ btn.parentElement.querySelectorAll('.tog-btn').forEac
 function setOrientation(btn,ori){ orientation=ori; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); if(selDevId)selectDev(selDevId); saveSettings(); }
 function setRotation(btn,deg){ camRotation=deg; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); saveSettings(); }
 
+function setViewerFlip(btn,on){
+  viewerFlipH=on;
+  btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  syncStreamConfig();
+}
+
 // TRANSMISSÃO P2P WEBRTC (VDO Ninja Style)
 async function toggleBroadcast(){ if(broadcasting)stopBroadcast(); else await startBroadcast(); }
 async function startBroadcast(){
   if(broadcasting) return;
   if(!cvsEl){toast('Inicie uma câmera primeiro');return;}
-  try{ bcStream=cvsEl.captureStream(cfg.fps); if(audioEnabled && rawStream) rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t)); }catch(e){return;}
+  try{ bcStream=cvsEl.captureStream(); if(audioEnabled && rawStream) rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t)); }catch(e){return;}
   bcPC=new RTCPeerConnection({iceServers:ICE_SERVERS}); bcPC.pendingCandidates=[];
   
   const senders=[];
@@ -1486,6 +1518,7 @@ function startBroadcasterSignaling() {
     borderPreset,
     customBorderSrc,
     customBorderType,
+    viewerFlipH,
     updatedAt: serverTimestamp()
   }).catch(e => console.error("Erro ao definir status ativo do stream:", e));
 
@@ -1746,7 +1779,7 @@ async function acceptAnswer(){
 function toggleRecord(){
   if(!cvsEl)return;
   if(!recording){
-    recChunks=[]; let stream; try{stream=cvsEl.captureStream(30);}catch(e){return;}
+    recChunks=[]; let stream; try{stream=cvsEl.captureStream();}catch(e){return;}
     let mime='video/webm;codecs=vp9'; if(!MediaRecorder.isTypeSupported(mime))mime='video/webm;codecs=vp8';
     try{ mediaRec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:Math.round(cfg.quality*50000)}); }catch(e){mediaRec=new MediaRecorder(stream);}
     mediaRec.ondataavailable=e=>{if(e.data.size>0)recChunks.push(e.data);};
@@ -1780,7 +1813,7 @@ function saveSettings(){
   localStorage.setItem('ipcam_cfg',JSON.stringify({
     devId:selDevId,filters,flipH,nightMode,cfg,orientation,camRotation,audioEnabled,
     zoom:document.getElementById('rZoom').value, exposure:document.getElementById('rExposure').value, iso:document.getElementById('rIso').value,
-    videoFit, borderEnabled, borderPreset, customBorderSrc, customBorderType
+    videoFit, borderEnabled, borderPreset, customBorderSrc, customBorderType, viewerFlipH
   }));
 }
 function loadSettings(){
@@ -1792,6 +1825,7 @@ function loadSettings(){
   if(s.borderPreset!==undefined)borderPreset=s.borderPreset;
   if(s.customBorderSrc!==undefined)customBorderSrc=s.customBorderSrc;
   if(s.customBorderType!==undefined)customBorderType=s.customBorderType;
+  if(s.viewerFlipH!==undefined)viewerFlipH=s.viewerFlipH;
 
   ['Brightness','Contrast','Saturation','Sharpness'].forEach(k=>{ document.getElementById('r'+k).value=filters[k.toLowerCase()]; document.getElementById('v'+k).textContent=filters[k.toLowerCase()]+'%'; });
   document.getElementById('rQuality').value=cfg.quality; document.getElementById('vQuality').textContent=cfg.quality+'%';
@@ -1827,6 +1861,7 @@ function loadSettings(){
     if(lbl&&lbl.textContent.includes('Áudio')){ const btns=row.querySelectorAll('.tog-btn'); btns[0].classList.toggle('on',!audioEnabled); btns[1].classList.toggle('on',audioEnabled); }
     if(lbl&&lbl.textContent.includes('Orientação')){ const btns=row.querySelectorAll('.tog-btn'); btns[0].classList.toggle('on',orientation==='landscape'); btns[1].classList.toggle('on',orientation==='portrait'); }
     if(lbl&&lbl.textContent.includes('Rotação')){ const btns=row.querySelectorAll('.tog-btn'); btns.forEach(b=>b.classList.toggle('on',b.textContent===camRotation+'°')); }
+    if(lbl&&lbl.textContent.includes('Espelhar View')){ const btns=row.querySelectorAll('.tog-btn'); btns[0].classList.toggle('on',!viewerFlipH); btns[1].classList.toggle('on',viewerFlipH); }
   });
   
   applyPreviewBorder();
@@ -1839,6 +1874,7 @@ function applyViewerConfig(data) {
   if (video) {
     const fit = data.videoFit || 'contain';
     video.style.objectFit = fit;
+    video.style.transform = data.viewerFlipH ? 'scaleX(-1)' : 'none';
   }
   
   const overlay = document.getElementById('vBorderOverlay');
@@ -1943,6 +1979,7 @@ async function syncStreamConfig() {
         borderPreset,
         customBorderSrc,
         customBorderType,
+        viewerFlipH,
         updatedAt: serverTimestamp()
       });
     } catch (e) {
@@ -1958,7 +1995,8 @@ async function syncStreamConfig() {
         borderEnabled,
         borderPreset,
         customBorderSrc,
-        customBorderType
+        customBorderType,
+        viewerFlipH
       }
     });
   }
