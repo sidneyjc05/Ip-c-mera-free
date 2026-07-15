@@ -707,9 +707,17 @@ function startViewerConnection(targetId) {
   vPC.pendingCandidates = [];
 
   vPC.ontrack=e=>{
+    // Forçar baixa latência no receiver para todas as tracks (reduz delay de áudio e vídeo)
+    if (e.receiver) {
+      try {
+        e.receiver.playoutDelayHint = 0;
+      } catch (err) {}
+    }
+
     if(connected)return;
     connected=true;
     video.srcObject=e.streams[0];
+
     video.play().catch(()=>{
       video.muted = true;
       video.play().catch(()=>{
