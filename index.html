@@ -742,6 +742,13 @@ let customBorderSrc = '';
 let customBorderType = 'image';
 let viewerFlipH = false;
 
+let currentZoom = 0;
+let currentExposure = 0;
+let currentIso = 400;
+let hwZoomActive = false;
+let hwExposureActive = false;
+let hwIsoActive = false;
+
 let timerWorker = null;
 if (window.Worker) {
   const workerBlob = new Blob([`
@@ -1220,10 +1227,25 @@ async function selectDev(id){
   const caps=track.getCapabilities?track.getCapabilities():{}; const cur=track.getSettings?track.getSettings():{};
   track.onmute = () => toast('Aviso: Câmera pausada pelo Android (aba oculta).');
   track.onunmute = () => toast('Câmera retomada.');
-  document.getElementById('iId').textContent=id.slice(0,12)+'...'; document.getElementById('iLabel').textContent=track.label||'—';
+  
+  // Fully populate device details card
+  document.getElementById('iId').textContent=id.slice(0,12)+'...'; 
+  document.getElementById('iLabel').textContent=track.label||'—';
+  const maxW = caps.width?.max || cur.width || w;
+  const maxH = caps.height?.max || cur.height || h;
+  document.getElementById('iMaxRes').textContent=maxW+'x'+maxH;
+  document.getElementById('iFacing').textContent=caps.facingMode?.[0]||cur.facingMode||'—';
+  
   document.getElementById('sRes').textContent=(cur.width||w)+'x'+(cur.height||h);
   
   setupPreview(cur.width||w,cur.height||h); saveSettings();
+  
+  // Apply the existing Zoom, Exposure, and ISO hardware settings to the new camera track
+  setTimeout(() => {
+    setHw('zoom', currentZoom);
+    setHw('exposure', currentExposure);
+    setHw('iso', currentIso);
+  }, 100);
   
   if (!broadcasting) {
     console.log("Auto-iniciando transmissão...");
@@ -1345,9 +1367,28 @@ function drawLoop(fromWorker = false){
     return;
   }
   
+  let exposureMultiplier = 1;
+  if (!hwExposureActive) {
+    exposureMultiplier = currentExposure >= 0 
+      ? 1 + (currentExposure / 10) * 1.5 
+      : 1 + (currentExposure / 10) * 0.7;
+  }
+  
+  let isoGain = 1;
+  let contrastMultiplier = 1;
+  if (!hwIsoActive) {
+    isoGain = Math.sqrt(currentIso / 400);
+    if (currentIso > 400) {
+      contrastMultiplier = 1 + (currentIso - 400) / 6000 * 0.2; // slight contrast boost for realistic sensor grain feel
+    }
+  }
+  
+  const finalBrightness = filters.brightness * exposureMultiplier * isoGain;
+  const finalContrast = filters.contrast * contrastMultiplier;
+
   let f='';
-  if(filters.brightness!==100) f+=`brightness(${filters.brightness}%) `;
-  if(filters.contrast!==100) f+=`contrast(${filters.contrast}%) `;
+  if(finalBrightness!==100) f+=`brightness(${finalBrightness}%) `;
+  if(finalContrast!==100) f+=`contrast(${finalContrast}%) `;
   if(filters.saturation!==100) f+=`saturate(${filters.saturation}%) `;
   if(nightMode) f+='grayscale(70%) sepia(25%) brightness(130%) ';
   
@@ -1356,7 +1397,14 @@ function drawLoop(fromWorker = false){
   if(flipH || viewerFlipH)ctx.scale(-1,1); if(camRotation!==0)ctx.rotate(camRotation*Math.PI/180);
   const vw=vidEl.videoWidth||vidEl.width||cvsEl.width, vh=vidEl.videoHeight||vidEl.height||cvsEl.height;
   let scale=Math.max(cvsEl.width/vw,cvsEl.height/vh), dw=vw*scale, dh=vh*scale;
-  ctx.drawImage(vidEl,-dw/2,-dh/2,dw,dh); ctx.restore();
+  
+  let zoomFactor = 1;
+  if (!hwZoomActive) {
+    zoomFactor = 1 + (currentZoom / 100) * 4; // 1x to 5x digital zoom
+  }
+  const zdw = dw * zoomFactor;
+  const zdh = dh * zoomFactor;
+  ctx.drawImage(vidEl,-zdw/2,-zdh/2,zdw,zdh); ctx.restore();
   if(filters.sharpness!==100){
     ctx.save();ctx.globalCompositeOperation='overlay';ctx.filter=`contrast(${filters.sharpness}%)`;
     ctx.drawImage(cvsEl,0,0,cvsEl.width,cvsEl.height);ctx.restore();ctx.filter='none';
@@ -1417,7 +1465,64 @@ function setSetting(k,v){
 function setCodec(v){ cfg.codec=v; saveSettings(); if(broadcasting) { stopBroadcast(); setTimeout(()=>startBroadcast(), 100); } }
 function setBitrate(v){ cfg.bitrate=Number(v); document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M'; saveSettings(); }
 function setAudio(btn,on){ audioEnabled=on; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); saveSettings(); if(selDevId)selectDev(selDevId); }
-async function setHw(k,v){ const n=Number(v); if(k==='zoom')document.getElementById('vZoom').textContent=(1+n/100*4).toFixed(1)+'x'; if(!rawStream)return; const track=rawStream.getVideoTracks()[0]; if(!track||!track.applyConstraints)return; try{ const c={}; if(k==='zoom')c.zoom=Math.max(1,n/10); await track.applyConstraints({advanced:[c]}); }catch(e){} saveSettings(); }
+async function setHw(k, v) {
+  const n = Number(v);
+  
+  if (k === 'zoom') {
+    currentZoom = n;
+    const label = document.getElementById('vZoom');
+    if (label) label.textContent = (1 + n / 100 * 4).toFixed(1) + 'x';
+  } else if (k === 'exposure') {
+    currentExposure = n;
+    const label = document.getElementById('vExposure');
+    if (label) label.textContent = (n > 0 ? '+' : '') + n;
+  } else if (k === 'iso') {
+    currentIso = n;
+    const label = document.getElementById('vIso');
+    if (label) label.textContent = n;
+  }
+  
+  saveSettings();
+  
+  if (!rawStream) return;
+  const track = rawStream.getVideoTracks()[0];
+  if (!track || !track.applyConstraints) return;
+  
+  try {
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    const c = {};
+    
+    if (k === 'zoom' && capabilities.zoom) {
+      const min = capabilities.zoom.min || 1;
+      const max = capabilities.zoom.max || 1;
+      c.zoom = min + (n / 100) * (max - min);
+      hwZoomActive = true;
+    } else if (k === 'exposure' && capabilities.exposureCompensation) {
+      const min = capabilities.exposureCompensation.min || -3;
+      const max = capabilities.exposureCompensation.max || 3;
+      c.exposureCompensation = min + ((n + 10) / 20) * (max - min);
+      hwExposureActive = true;
+    } else if (k === 'iso' && capabilities.iso) {
+      const min = capabilities.iso.min || 100;
+      const max = capabilities.iso.max || 6400;
+      c.iso = Math.max(min, Math.min(max, n));
+      hwIsoActive = true;
+    } else {
+      if (k === 'zoom') hwZoomActive = false;
+      if (k === 'exposure') hwExposureActive = false;
+      if (k === 'iso') hwIsoActive = false;
+    }
+    
+    if (Object.keys(c).length > 0) {
+      await track.applyConstraints({ advanced: [c] });
+    }
+  } catch (e) {
+    console.warn("Erro ao aplicar restrição de hardware para " + k + ":", e);
+    if (k === 'zoom') hwZoomActive = false;
+    if (k === 'exposure') hwExposureActive = false;
+    if (k === 'iso') hwIsoActive = false;
+  }
+}
 function setRes(btn){ document.querySelectorAll('#resGrp .tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); cfg.res=btn.dataset.r; if(selDevId&&!screenShareMode)selectDev(selDevId); saveSettings(); }
 function setNight(btn,on){ btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on');nightMode=on; saveSettings(); }
 function setOrientation(btn,ori){ orientation=ori; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); if(selDevId)selectDev(selDevId); saveSettings(); }
@@ -1829,6 +1934,30 @@ function loadSettings(){
   if(s.customBorderSrc!==undefined)customBorderSrc=s.customBorderSrc;
   if(s.customBorderType!==undefined)customBorderType=s.customBorderType;
   if(s.viewerFlipH!==undefined)viewerFlipH=s.viewerFlipH;
+
+  if (s.zoom !== undefined) {
+    currentZoom = Number(s.zoom);
+    const rZoom = document.getElementById('rZoom');
+    if (rZoom) rZoom.value = currentZoom;
+  }
+  if (s.exposure !== undefined) {
+    currentExposure = Number(s.exposure);
+    const rExposure = document.getElementById('rExposure');
+    if (rExposure) rExposure.value = currentExposure;
+  }
+  if (s.iso !== undefined) {
+    currentIso = Number(s.iso);
+    const rIso = document.getElementById('rIso');
+    if (rIso) rIso.value = currentIso;
+  }
+  
+  // Update UI labels for Zoom, Exposure, and ISO
+  const vZoom = document.getElementById('vZoom');
+  if (vZoom) vZoom.textContent = (1 + currentZoom / 100 * 4).toFixed(1) + 'x';
+  const vExposure = document.getElementById('vExposure');
+  if (vExposure) vExposure.textContent = (currentExposure > 0 ? '+' : '') + currentExposure;
+  const vIso = document.getElementById('vIso');
+  if (vIso) vIso.textContent = currentIso;
 
   ['Brightness','Contrast','Saturation','Sharpness'].forEach(k=>{ document.getElementById('r'+k).value=filters[k.toLowerCase()]; document.getElementById('v'+k).textContent=filters[k.toLowerCase()]+'%'; });
   document.getElementById('rQuality').value=cfg.quality; document.getElementById('vQuality').textContent=cfg.quality+'%';
