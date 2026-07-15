@@ -223,6 +223,100 @@
   ::-webkit-scrollbar-thumb:hover{background:var(--border-l)}
   .flash-fx{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:10;animation:flashFx .3s ease-out}
   @keyframes flashFx{0%{opacity:.8}100%{opacity:0}}
+  @keyframes rgbNeon {
+    0% { border-color: #10b981; box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.6), 0 0 15px rgba(16, 185, 129, 0.6); }
+    33% { border-color: #3b82f6; box-shadow: inset 0 0 15px rgba(59, 130, 246, 0.6), 0 0 15px rgba(59, 130, 246, 0.6); }
+    66% { border-color: #8b5cf6; box-shadow: inset 0 0 15px rgba(139, 92, 246, 0.6), 0 0 15px rgba(139, 92, 246, 0.6); }
+    100% { border-color: #10b981; box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.6), 0 0 15px rgba(16, 185, 129, 0.6); }
+  }
+  .border-preset-rgb-neon {
+    border: 8px solid #10b981;
+    animation: rgbNeon 6s infinite linear;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  .border-preset-cyberpunk {
+    border: 4px double #f59e0b;
+    box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.4), 0 0 15px rgba(245, 158, 11, 0.3);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  .border-preset-cyberpunk::before {
+    content: 'SYS LIVE // 1080p';
+    position: absolute;
+    top: 10px;
+    left: 14px;
+    background: #f59e0b;
+    color: #000;
+    font-family: monospace;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 2px 8px;
+    border-radius: 2px;
+    letter-spacing: 1px;
+  }
+  .border-preset-cyberpunk::after {
+    content: 'WEBRTC FEED';
+    position: absolute;
+    bottom: 10px;
+    right: 14px;
+    background: rgba(0,0,0,0.85);
+    color: #f59e0b;
+    border: 1px solid #f59e0b;
+    font-family: monospace;
+    font-size: 9px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+  .border-preset-minimalist {
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.1);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  @keyframes scanlineScan {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+  .border-preset-vhs-retro {
+    border: 12px solid #1c1917;
+    box-shadow: inset 0 0 35px rgba(0,0,0,0.8);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    z-index: 10;
+    overflow: hidden;
+  }
+  .border-preset-vhs-retro::before {
+    content: 'REC ⏺   PLAY';
+    position: absolute;
+    top: 15px;
+    left: 20px;
+    color: #ef4444;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    font-weight: bold;
+    text-shadow: 0 0 4px #ef4444;
+  }
+  .border-preset-vhs-retro::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 4px, 6px 100%;
+    z-index: 9;
+  }
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 </head>
@@ -230,7 +324,10 @@
 
 <!-- MODO VIEW -->
 <div id="viewPanel" class="hidden">
-  <video id="viewVideo" autoplay playsinline></video>
+  <div id="vVideoContainer" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; overflow: hidden;">
+    <video id="viewVideo" autoplay playsinline style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;"></video>
+    <div id="vBorderOverlay" style="position: absolute; inset: 0; pointer-events: none; box-sizing: border-box; display: none; z-index: 5;"></div>
+  </div>
   <div id="vStatus" class="v-badge"><div class="dot" id="vDot"></div><span id="vStatusTxt">Conectando...</span></div>
   <div id="vFps" class="v-badge">0 FPS</div>
   <div id="vConnecting">
@@ -363,6 +460,58 @@
             <div class="tog-grp">
               <button class="tog-btn on" onclick="setAudio(this,false)">Desligado</button>
               <button class="tog-btn" onclick="setAudio(this,true)">Ativado</button>
+            </div>
+          </div>
+        </div>
+        <div class="ctrl-row" style="margin-bottom:10px">
+          <div class="ctrl-lbl">Ajuste de Vídeo</div>
+          <div class="ctrl-body">
+            <div class="tog-grp" id="videoFitGrp">
+              <button class="tog-btn on" data-fit="contain" onclick="setVideoFit(this,'contain')">Proporcional</button>
+              <button class="tog-btn" data-fit="cover" onclick="setVideoFit(this,'cover')">Preencher</button>
+              <button class="tog-btn" data-fit="fill" onclick="setVideoFit(this,'fill')">Esticar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-ttl" style="margin: 16px 0 10px;">Borda / Overlay da Live</div>
+        <div class="ctrl-row" style="margin-bottom:10px">
+          <div class="ctrl-lbl">Borda / Moldura</div>
+          <div class="ctrl-body">
+            <div class="tog-grp" id="borderEnabledGrp">
+              <button class="tog-btn on" data-enabled="false" onclick="setBorderEnabled(this,false)">Desativada</button>
+              <button class="tog-btn" data-enabled="true" onclick="setBorderEnabled(this,true)">Ativada</button>
+            </div>
+          </div>
+        </div>
+        
+        <div id="borderSettingsSection" style="display: none; background: rgba(0,0,0,0.25); padding: 12px; border-radius: var(--rs); margin-bottom: 12px; border: 1px solid var(--border);">
+          <div class="ctrl-row" style="margin-bottom:10px">
+            <div class="ctrl-lbl">Estilo / Preset</div>
+            <div class="ctrl-body">
+              <select id="selBorderPreset" class="tog-btn" onchange="setBorderPreset(this.value)" style="width:100%">
+                <option value="rgb-neon">Neon RGB Pulsante</option>
+                <option value="cyberpunk">Cyberpunk Amber</option>
+                <option value="minimalist">Moldura Fina Branca</option>
+                <option value="vhs-retro">Retro VHS Console</option>
+                <option value="custom">Upload Personalizado</option>
+              </select>
+            </div>
+          </div>
+          
+          <div id="customBorderUploadContainer" style="display: none; margin-top: 10px;">
+            <div class="link-lbl" style="margin-bottom:4px">Upload de Arquivo (PNG, GIF, JPG, MP4)</div>
+            <input type="file" id="borderFileInput" accept="image/*,video/mp4" style="display: none;" onchange="handleBorderUpload(this)" />
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-cp" onclick="document.getElementById('borderFileInput').click()" style="flex: 1; text-align: center;">Selecionar Arquivo</button>
+              <button class="btn-cp" onclick="clearCustomBorder()" style="background: var(--danger); color: white;">Limpar</button>
+            </div>
+            <div id="borderUploadStatus" style="font-size: 11px; color: var(--text3); margin-top: 5px; word-break: break-all;"></div>
+            
+            <div class="link-lbl" style="margin-top: 10px; margin-bottom:4px">Ou use um Link de Imagem/Vídeo</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="borderUrlInput" placeholder="https://exemplo.com/borda.png" class="tog-btn" style="flex: 1; text-align: left; background: rgba(0,0,0,0.35); text-overflow: ellipsis;" onchange="handleBorderUrlChange(this.value)" />
+              <button class="btn-cp" onclick="handleBorderUrlChange(document.getElementById('borderUrlInput').value)">Aplicar</button>
             </div>
           </div>
         </div>
@@ -566,6 +715,12 @@ let mediaRec=null, recChunks=[], recStart=0, recTimerInt=null;
 let prevFrame=null, motionLvl=0;
 const VID=getViewId();
 
+let videoFit = 'contain';
+let borderEnabled = false;
+let borderPreset = 'rgb-neon';
+let customBorderSrc = '';
+let customBorderType = 'image';
+
 let timerWorker = null;
 if (window.Worker) {
   const workerBlob = new Blob([`
@@ -668,16 +823,23 @@ async function initView(){
   }
   const streamDocRef = doc(db, "streams", targetId);
   streamStatusUnsubscribe = onSnapshot(streamDocRef, (docSnap) => {
-    if (docSnap.exists() && docSnap.data().active) {
+    if (docSnap.exists()) {
       const data = docSnap.data();
-      const updatedTime = (data.updatedAt && typeof data.updatedAt.toDate === 'function') ? data.updatedAt.toDate().getTime() : Date.now();
-      const timeDiff = Date.now() - updatedTime;
+      applyViewerConfig(data);
       
-      if (timeDiff < 20000 || !data.updatedAt) {
-        console.log("Transmissor detectado como ONLINE no Firestore!");
-        updateViewerUIStatus('connecting');
+      if (data.active) {
+        const updatedTime = (data.updatedAt && typeof data.updatedAt.toDate === 'function') ? data.updatedAt.toDate().getTime() : Date.now();
+        const timeDiff = Date.now() - updatedTime;
+        
+        if (timeDiff < 20000 || !data.updatedAt) {
+          console.log("Transmissor detectado como ONLINE no Firestore!");
+          updateViewerUIStatus('connecting');
+        } else {
+          console.log("Transmissor inativo (sem batimento recente).");
+          updateViewerUIStatus('offline');
+        }
       } else {
-        console.log("Transmissor inativo (sem batimento recente).");
+        console.log("Transmissor detectado como OFFLINE no Firestore.");
         updateViewerUIStatus('offline');
       }
     } else {
@@ -812,6 +974,8 @@ function startViewerConnection(targetId) {
       }
     }else if(d.type==='candidate'){
       try{ if(vPC && vPC.remoteDescription) await vPC.addIceCandidate(objToIce(d.candidate)); else if(vPC) vPC.pendingCandidates.push(d.candidate); }catch(e){}
+    }else if(d.type==='config'){
+      applyViewerConfig(d.config);
     }
   };
   const readyInt=setInterval(()=>{ if(connected)clearInterval(readyInt);else bcChan.postMessage({type:'viewer_ready'}); },1000);
@@ -1134,7 +1298,15 @@ function setupPreview(w,h){
   cvsEl=document.createElement('canvas');
   if(orientation==='portrait'){cvsEl.width=Math.min(w,h);cvsEl.height=Math.max(w,h);}else{cvsEl.width=w;cvsEl.height=h;}
   cvsEl.style.width='100%';cvsEl.style.height='100%';
+  cvsEl.style.objectFit=videoFit || 'contain';
   ctx=cvsEl.getContext('2d'); box.appendChild(cvsEl);
+  
+  const borderOverlay = document.createElement('div');
+  borderOverlay.id = 'pBorderOverlay';
+  borderOverlay.style.cssText = 'position: absolute; inset: 0; pointer-events: none; box-sizing: border-box; display: none; z-index: 5;';
+  box.appendChild(borderOverlay);
+  applyPreviewBorder();
+
   const ol=document.createElement('div');ol.className='prev-ol';ol.innerHTML='<div class="rec-dot"></div><span>LIVE</span>';box.appendChild(ol);
   const fp=document.createElement('div');fp.className='prev-fps';fp.id='pFps';fp.textContent='0 FPS';box.appendChild(fp);
   drawing=true;lastFpsT=performance.now();fpsCount=0; drawLoop();
@@ -1309,6 +1481,11 @@ function startBroadcasterSignaling() {
   const streamDocRef = doc(db, "streams", VID);
   setDoc(streamDocRef, {
     active: true,
+    videoFit,
+    borderEnabled,
+    borderPreset,
+    customBorderSrc,
+    customBorderType,
     updatedAt: serverTimestamp()
   }).catch(e => console.error("Erro ao definir status ativo do stream:", e));
 
@@ -1602,13 +1779,20 @@ async function toggleFlash(){
 function saveSettings(){
   localStorage.setItem('ipcam_cfg',JSON.stringify({
     devId:selDevId,filters,flipH,nightMode,cfg,orientation,camRotation,audioEnabled,
-    zoom:document.getElementById('rZoom').value, exposure:document.getElementById('rExposure').value, iso:document.getElementById('rIso').value
+    zoom:document.getElementById('rZoom').value, exposure:document.getElementById('rExposure').value, iso:document.getElementById('rIso').value,
+    videoFit, borderEnabled, borderPreset, customBorderSrc, customBorderType
   }));
 }
 function loadSettings(){
   const s=JSON.parse(localStorage.getItem('ipcam_cfg')||'{}');
   if(s.filters)Object.assign(filters,s.filters); if(s.flipH!==undefined)flipH=s.flipH; if(s.nightMode!==undefined)nightMode=s.nightMode;
   if(s.cfg)Object.assign(cfg,s.cfg); if(s.orientation)orientation=s.orientation; if(s.camRotation!==undefined)camRotation=s.camRotation; if(s.audioEnabled!==undefined)audioEnabled=s.audioEnabled;
+  if(s.videoFit!==undefined)videoFit=s.videoFit;
+  if(s.borderEnabled!==undefined)borderEnabled=s.borderEnabled;
+  if(s.borderPreset!==undefined)borderPreset=s.borderPreset;
+  if(s.customBorderSrc!==undefined)customBorderSrc=s.customBorderSrc;
+  if(s.customBorderType!==undefined)customBorderType=s.customBorderType;
+
   ['Brightness','Contrast','Saturation','Sharpness'].forEach(k=>{ document.getElementById('r'+k).value=filters[k.toLowerCase()]; document.getElementById('v'+k).textContent=filters[k.toLowerCase()]+'%'; });
   document.getElementById('rQuality').value=cfg.quality; document.getElementById('vQuality').textContent=cfg.quality+'%';
   document.getElementById('rFps').value=cfg.fps;
@@ -1617,12 +1801,286 @@ function loadSettings(){
   document.getElementById('rBitrate').value=cfg.bitrate; document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M';
   document.getElementById('selCodec').value=cfg.codec;
   document.querySelectorAll('#resGrp .tog-btn').forEach(b=>{ b.classList.toggle('on',b.dataset.r===cfg.res); });
+  
+  // Atualizar botões de Ajuste de Vídeo (Fit)
+  document.querySelectorAll('#videoFitGrp .tog-btn').forEach(b => {
+    b.classList.toggle('on', b.dataset.fit === videoFit);
+  });
+  
+  // Atualizar botões de Ativar/Desativar Borda
+  document.querySelectorAll('#borderEnabledGrp .tog-btn').forEach(b => {
+    b.classList.toggle('on', b.dataset.enabled === String(borderEnabled));
+  });
+  
+  document.getElementById('borderSettingsSection').style.display = borderEnabled ? 'block' : 'none';
+  document.getElementById('selBorderPreset').value = borderPreset;
+  document.getElementById('customBorderUploadContainer').style.display = borderPreset === 'custom' ? 'block' : 'none';
+  if (customBorderSrc && customBorderSrc.startsWith('http')) {
+    document.getElementById('borderUrlInput').value = customBorderSrc;
+  }
+  if (customBorderSrc) {
+    document.getElementById('borderUploadStatus').textContent = `Borda personalizada carregada (${customBorderType})`;
+  }
+
   document.querySelectorAll('.ctrl-row').forEach(row=>{
     const lbl=row.querySelector('.ctrl-lbl');
     if(lbl&&lbl.textContent.includes('Áudio')){ const btns=row.querySelectorAll('.tog-btn'); btns[0].classList.toggle('on',!audioEnabled); btns[1].classList.toggle('on',audioEnabled); }
     if(lbl&&lbl.textContent.includes('Orientação')){ const btns=row.querySelectorAll('.tog-btn'); btns[0].classList.toggle('on',orientation==='landscape'); btns[1].classList.toggle('on',orientation==='portrait'); }
     if(lbl&&lbl.textContent.includes('Rotação')){ const btns=row.querySelectorAll('.tog-btn'); btns.forEach(b=>b.classList.toggle('on',b.textContent===camRotation+'°')); }
   });
+  
+  applyPreviewBorder();
+}
+
+function applyViewerConfig(data) {
+  if (!data) return;
+  
+  const video = document.getElementById('viewVideo');
+  if (video) {
+    const fit = data.videoFit || 'contain';
+    video.style.objectFit = fit;
+  }
+  
+  const overlay = document.getElementById('vBorderOverlay');
+  if (overlay) {
+    const enabled = data.borderEnabled || false;
+    if (!enabled) {
+      overlay.style.display = 'none';
+      overlay.className = '';
+      overlay.innerHTML = '';
+      overlay.style.backgroundImage = '';
+    } else {
+      overlay.style.display = 'block';
+      const preset = data.borderPreset || 'rgb-neon';
+      overlay.className = ''; 
+      overlay.innerHTML = ''; 
+      overlay.style.backgroundImage = '';
+      
+      if (preset === 'custom') {
+        const src = data.customBorderSrc || '';
+        const type = data.customBorderType || 'image';
+        if (src) {
+          if (type === 'video') {
+            const vid = document.createElement('video');
+            vid.src = src;
+            vid.autoplay = true;
+            vid.loop = true;
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.style.cssText = 'width: 100%; height: 100%; object-fit: fill; position: absolute; inset: 0;';
+            overlay.appendChild(vid);
+          } else {
+            overlay.style.backgroundImage = `url(${src})`;
+            overlay.style.backgroundSize = '100% 100%';
+            overlay.style.backgroundRepeat = 'no-repeat';
+            overlay.style.backgroundPosition = 'center';
+          }
+        }
+      } else {
+        overlay.classList.add('border-preset-' + preset);
+      }
+    }
+  }
+}
+
+function applyPreviewBorder() {
+  const overlay = document.getElementById('pBorderOverlay');
+  const canvas = document.querySelector('#prevBox canvas');
+  
+  if (canvas) {
+    canvas.style.objectFit = videoFit || 'contain';
+  }
+  
+  if (overlay) {
+    if (!borderEnabled) {
+      overlay.style.display = 'none';
+      overlay.className = '';
+      overlay.innerHTML = '';
+      overlay.style.backgroundImage = '';
+    } else {
+      overlay.style.display = 'block';
+      overlay.className = '';
+      overlay.innerHTML = '';
+      overlay.style.backgroundImage = '';
+      
+      if (borderPreset === 'custom') {
+        const src = customBorderSrc || '';
+        const type = customBorderType || 'image';
+        if (src) {
+          if (type === 'video') {
+            const vid = document.createElement('video');
+            vid.src = src;
+            vid.autoplay = true;
+            vid.loop = true;
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.style.cssText = 'width: 100%; height: 100%; object-fit: fill; position: absolute; inset: 0;';
+            overlay.appendChild(vid);
+          } else {
+            overlay.style.backgroundImage = `url(${src})`;
+            overlay.style.backgroundSize = '100% 100%';
+            overlay.style.backgroundRepeat = 'no-repeat';
+            overlay.style.backgroundPosition = 'center';
+          }
+        }
+      } else {
+        overlay.classList.add('border-preset-' + borderPreset);
+      }
+    }
+  }
+}
+
+async function syncStreamConfig() {
+  saveSettings();
+  applyPreviewBorder();
+  
+  if (broadcasting) {
+    const streamDocRef = doc(db, "streams", VID);
+    try {
+      await updateDoc(streamDocRef, {
+        videoFit,
+        borderEnabled,
+        borderPreset,
+        customBorderSrc,
+        customBorderType,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.warn("Erro ao sincronizar config de stream:", e);
+    }
+  }
+  
+  if (bcChan) {
+    bcChan.postMessage({
+      type: 'config',
+      config: {
+        videoFit,
+        borderEnabled,
+        borderPreset,
+        customBorderSrc,
+        customBorderType
+      }
+    });
+  }
+}
+
+function setVideoFit(btn, val) {
+  videoFit = val;
+  btn.parentElement.querySelectorAll('.tog-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  syncStreamConfig();
+}
+
+function setBorderEnabled(btn, val) {
+  borderEnabled = val;
+  btn.parentElement.querySelectorAll('.tog-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('borderSettingsSection').style.display = val ? 'block' : 'none';
+  syncStreamConfig();
+}
+
+function setBorderPreset(val) {
+  borderPreset = val;
+  const container = document.getElementById('customBorderUploadContainer');
+  if (val === 'custom') {
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
+  }
+  syncStreamConfig();
+}
+
+function compressImage(file, callback) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      let w = img.width;
+      let h = img.height;
+      const MAX_SIZE = 1280;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) {
+          h = Math.round((h * MAX_SIZE) / w);
+          w = MAX_SIZE;
+        } else {
+          w = Math.round((w * MAX_SIZE) / h);
+          h = MAX_SIZE;
+        }
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/png', 0.8);
+      callback(dataUrl);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleBorderUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  
+  const statusEl = document.getElementById('borderUploadStatus');
+  statusEl.textContent = "Carregando e processando...";
+  
+  if (file.type.startsWith('image/')) {
+    customBorderType = 'image';
+    if (file.type === 'image/gif' || file.size < 200000) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        customBorderSrc = e.target.result;
+        statusEl.textContent = `Imagem carregada: ${file.name} (${Math.round(file.size/1024)} KB)`;
+        syncStreamConfig();
+      };
+      reader.readAsDataURL(file);
+    } else {
+      compressImage(file, function(dataUrl) {
+        customBorderSrc = dataUrl;
+        const approxSize = Math.round((dataUrl.length * 3) / 4 / 1024);
+        statusEl.textContent = `Imagem otimizada: ${file.name} (~${approxSize} KB)`;
+        syncStreamConfig();
+      });
+    }
+  } else if (file.type.startsWith('video/')) {
+    customBorderType = 'video';
+    if (file.size > 800000) {
+      statusEl.innerHTML = `<span style="color:var(--danger)">Erro: O vídeo excede o limite de 800 KB. Use outro ou Link externo.</span>`;
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      customBorderSrc = e.target.result;
+      statusEl.textContent = `Vídeo carregado: ${file.name} (${Math.round(file.size/1024)} KB)`;
+      syncStreamConfig();
+    };
+    reader.readAsDataURL(file);
+  } else {
+    statusEl.innerHTML = `<span style="color:var(--danger)">Formato não suportado.</span>`;
+  }
+}
+
+function clearCustomBorder() {
+  customBorderSrc = '';
+  document.getElementById('borderFileInput').value = '';
+  document.getElementById('borderUrlInput').value = '';
+  document.getElementById('borderUploadStatus').textContent = 'Borda limpa';
+  syncStreamConfig();
+}
+
+function handleBorderUrlChange(val) {
+  if (!val.trim()) return;
+  customBorderSrc = val.trim();
+  if (val.toLowerCase().endsWith('.mp4') || val.toLowerCase().includes('.mp4?')) {
+    customBorderType = 'video';
+  } else {
+    customBorderType = 'image';
+  }
+  document.getElementById('borderUploadStatus').textContent = `Link aplicado (${customBorderType})`;
+  syncStreamConfig();
 }
 
 async function optimizeLocalIPs() {
@@ -1667,7 +2125,13 @@ Object.assign(window, {
   toggleFlash,
   copyLink,
   openViewTab,
-  optimizeLocalIPs
+  optimizeLocalIPs,
+  setVideoFit,
+  setBorderEnabled,
+  setBorderPreset,
+  handleBorderUpload,
+  clearCustomBorder,
+  handleBorderUrlChange
 });
 
 (function init(){
