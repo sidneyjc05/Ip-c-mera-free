@@ -601,6 +601,45 @@ let viewerUnsubscribe = null;
 let viewerCandidatesUnsubscribe = null;
 let streamStatusUnsubscribe = null;
 
+function updateViewerUIStatus(targetState) {
+  const statusTxt = document.getElementById('vStatusTxt');
+  const dot = document.getElementById('vDot');
+  const conn = document.getElementById('vConnecting');
+  const video = document.getElementById('viewVideo');
+  
+  const isCurrentlyConnected = vPC && (vPC.connectionState === 'connected');
+  const hasActiveStream = video && video.srcObject && video.srcObject.active;
+
+  if (isCurrentlyConnected || hasActiveStream) {
+    if (statusTxt) statusTxt.textContent = 'AO VIVO';
+    if (dot) {
+      dot.classList.add('on');
+    }
+    if (conn) conn.classList.add('off');
+    return;
+  }
+
+  if (targetState === 'connecting') {
+    if (statusTxt) statusTxt.textContent = "Transmissor Online (Conectando...)";
+    if (dot) {
+      dot.classList.add('on');
+    }
+    if (conn) conn.classList.remove('off');
+  } else if (targetState === 'offline') {
+    if (statusTxt) statusTxt.textContent = "Aguardando Transmissão (Offline)";
+    if (dot) {
+      dot.classList.remove('on');
+    }
+    if (conn) conn.classList.remove('off');
+  } else if (targetState === 'reconectando') {
+    if (statusTxt) statusTxt.textContent = "Reconectando...";
+    if (dot) {
+      dot.classList.remove('on');
+    }
+    if (conn) conn.classList.remove('off');
+  }
+}
+
 async function initView(){
   document.body.classList.add('view-mode');
   document.getElementById('viewPanel').classList.remove('hidden');
@@ -629,18 +668,21 @@ async function initView(){
   }
   const streamDocRef = doc(db, "streams", targetId);
   streamStatusUnsubscribe = onSnapshot(streamDocRef, (docSnap) => {
-    const statusTxt = document.getElementById('vStatusTxt');
-    const dot = document.getElementById('vDot');
     if (docSnap.exists() && docSnap.data().active) {
-      console.log("Transmissor detectado como ONLINE no Firestore!");
-      if (vPC && vPC.connectionState !== 'connected') {
-        statusTxt.textContent = "Transmissor Online (Conectando...)";
-        dot.classList.add('on');
+      const data = docSnap.data();
+      const updatedTime = (data.updatedAt && typeof data.updatedAt.toDate === 'function') ? data.updatedAt.toDate().getTime() : Date.now();
+      const timeDiff = Date.now() - updatedTime;
+      
+      if (timeDiff < 20000 || !data.updatedAt) {
+        console.log("Transmissor detectado como ONLINE no Firestore!");
+        updateViewerUIStatus('connecting');
+      } else {
+        console.log("Transmissor inativo (sem batimento recente).");
+        updateViewerUIStatus('offline');
       }
     } else {
       console.log("Transmissor detectado como OFFLINE no Firestore.");
-      statusTxt.textContent = "Aguardando Transmissão (Offline)";
-      dot.classList.remove('on');
+      updateViewerUIStatus('offline');
     }
   }, (err) => {
     console.error("Erro ao escutar status do stream:", err);
@@ -686,14 +728,17 @@ function startViewerConnection(targetId) {
         }
       });
     });
-    conn.classList.add('off');dot.classList.add('on');stxt.textContent='AO VIVO';
+    updateViewerUIStatus();
     toast('Transmissão conectada!');
   };
   
   vPC.onconnectionstatechange=()=>{
     const s=vPC.connectionState;
-    if(s==='disconnected'||s==='failed'||s==='closed'){
-      dot.classList.remove('on');stxt.textContent='Reconectando...';conn.classList.remove('off');connected=false;
+    if(s==='connected'){
+      updateViewerUIStatus();
+    } else if(s==='disconnected'||s==='failed'||s==='closed'){
+      updateViewerUIStatus('reconectando');
+      connected=false;
       setTimeout(() => {
         if (!connected) {
           console.log("Tentando reconectar automaticamente...");
@@ -1247,6 +1292,7 @@ const bufferedCandidates = new Map();
 const candidateUnsubscribes = new Map();
 let viewersSnapshotUnsubscribe = null;
 let isInitializingSignaling = false;
+let broadcasterHeartbeatInterval = null;
 
 function startBroadcasterSignaling() {
   isInitializingSignaling = true;
@@ -1257,6 +1303,32 @@ function startBroadcasterSignaling() {
     active: true,
     updatedAt: serverTimestamp()
   }).catch(e => console.error("Erro ao definir status ativo do stream:", e));
+
+  // Heartbeat periódico para manter o status ativo no Firestore e evitar expiração
+  if (broadcasterHeartbeatInterval) {
+    clearInterval(broadcasterHeartbeatInterval);
+  }
+  broadcasterHeartbeatInterval = setInterval(async () => {
+    if (!broadcasting) {
+      clearInterval(broadcasterHeartbeatInterval);
+      return;
+    }
+    try {
+      await updateDoc(streamDocRef, {
+        active: true,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      try {
+        await setDoc(streamDocRef, {
+          active: true,
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Erro ao enviar heartbeat do transmissor:", err);
+      }
+    }
+  }, 5000);
 
   const viewersRef = collection(db, "streams", VID, "viewers");
   viewersSnapshotUnsubscribe = onSnapshot(viewersRef, (snapshot) => {
@@ -1438,6 +1510,10 @@ function cleanupViewer(viewerId) {
 
 function stopBroadcasterSignaling() {
   isInitializingSignaling = false;
+  if (broadcasterHeartbeatInterval) {
+    clearInterval(broadcasterHeartbeatInterval);
+    broadcasterHeartbeatInterval = null;
+  }
   if (viewersSnapshotUnsubscribe) {
     try { viewersSnapshotUnsubscribe(); } catch (e) {}
     viewersSnapshotUnsubscribe = null;
@@ -1588,7 +1664,15 @@ Object.assign(window, {
 
 (function init(){
   if(isViewMode()) initView(); else initControl();
-  window.addEventListener('beforeunload',()=>{ if(rawStream)rawStream.getTracks().forEach(t=>t.stop()); stopBroadcastInternal(); if(vPC)try{vPC.close();}catch(e){} if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop(); });
+  window.addEventListener('beforeunload',()=>{
+    if (typeof broadcasting !== 'undefined' && broadcasting) {
+      try { stopBroadcast(); } catch(e) {}
+    }
+    if(rawStream)rawStream.getTracks().forEach(t=>t.stop());
+    stopBroadcastInternal();
+    if(vPC)try{vPC.close();}catch(e){}
+    if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
+  });
 })();
 </script>
 </body>
