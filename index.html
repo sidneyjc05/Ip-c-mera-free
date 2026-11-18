@@ -1452,15 +1452,17 @@ function startViewerConnection(targetId) {
     toast('Transmissão conectada!');
   };
   
-  vPC.onconnectionstatechange=()=>{
-    const s=vPC.connectionState;
+  const pc = vPC;
+  pc.onconnectionstatechange=()=>{
+    if (!vPC || vPC !== pc) return;
+    const s=pc.connectionState;
     if(s==='connected'){
       updateViewerUIStatus();
     } else if(s==='disconnected'||s==='failed'||s==='closed'){
       updateViewerUIStatus('reconectando');
       connected=false;
       setTimeout(() => {
-        if (!connected) {
+        if (!connected && vPC === pc) {
           console.log("Tentando reconectar automaticamente...");
           startViewerConnection(targetId);
         }
@@ -1469,9 +1471,10 @@ function startViewerConnection(targetId) {
   };
   
   // MANUAL CONNECT ICE FIX
-  vPC.onicegatheringstatechange = () => {
-    if (vPC.iceGatheringState === 'complete') {
-        document.getElementById('vAnswerTxt').value = JSON.stringify(sdpToObj(vPC.localDescription));
+  pc.onicegatheringstatechange = () => {
+    if (!vPC || vPC !== pc) return;
+    if (pc.iceGatheringState === 'complete') {
+        document.getElementById('vAnswerTxt').value = JSON.stringify(sdpToObj(pc.localDescription));
         document.getElementById('vStep2').classList.remove('hidden');
         toast('Resposta completa (com ICE)! Copie para o transmissor.');
     }
@@ -2186,17 +2189,25 @@ async function startBroadcast(){
     }
   });
 
+  const pc = bcPC;
   try{
-    const offer=await bcPC.createOffer(); await bcPC.setLocalDescription(offer);
+    const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
+    if (!bcPC || bcPC !== pc) return;
     
     // MANUAL CONNECT ICE FIX
-    bcPC.onicegatheringstatechange = () => {
-      if (bcPC.iceGatheringState === 'complete') {
-        document.getElementById('offerTxt').value = JSON.stringify(sdpToObj(bcPC.localDescription));
+    pc.onicegatheringstatechange = () => {
+      if (!bcPC || bcPC !== pc) return;
+      if (pc.iceGatheringState === 'complete') {
+        document.getElementById('offerTxt').value = JSON.stringify(sdpToObj(pc.localDescription));
         toast('Oferta com ICE pronta para cópia manual.');
       }
     };
-    setTimeout(() => { if (bcPC.iceGatheringState !== 'complete') document.getElementById('offerTxt').value = JSON.stringify(sdpToObj(bcPC.localDescription)); }, 2000);
+    if (window._bcOfferTimer) clearTimeout(window._bcOfferTimer);
+    window._bcOfferTimer = setTimeout(() => {
+      if (bcPC && bcPC === pc && pc.iceGatheringState !== 'complete') {
+        document.getElementById('offerTxt').value = JSON.stringify(sdpToObj(pc.localDescription));
+      }
+    }, 2000);
 
     bcChan=new BroadcastChannel('ipcam_'+VID);
     bcChan.onmessage=async e=>{
@@ -2209,13 +2220,13 @@ async function startBroadcast(){
           for(const c of bcPC.pendingCandidates) await bcPC.addIceCandidate(objToIce(c));
           bcPC.pendingCandidates=[];
         }catch(err){
-          bcPC.processingAnswer = false;
+          if (bcPC) bcPC.processingAnswer = false;
         }
       }
       else if(d.type==='candidate'){ try{ if(bcPC && bcPC.remoteDescription) await bcPC.addIceCandidate(objToIce(d.candidate)); else if(bcPC) bcPC.pendingCandidates.push(d.candidate); }catch(e){} }
     };
-    bcPC.onicecandidate=e=>{ if(e.candidate&&bcChan)bcChan.postMessage({type:'candidate',candidate:iceToObj(e.candidate)}); };
-    bcPC.onconnectionstatechange=()=>{ if(bcPC.connectionState==='connected') toast('Visualizador conectado!'); };
+    pc.onicecandidate=e=>{ if(e.candidate&&bcChan)bcChan.postMessage({type:'candidate',candidate:iceToObj(e.candidate)}); };
+    pc.onconnectionstatechange=()=>{ if(bcPC && bcPC === pc && pc.connectionState==='connected') toast('Visualizador conectado!'); };
 
     document.getElementById('sigBox').classList.remove('hidden'); broadcasting=true;
     document.getElementById('bcBtn').classList.add('on');document.getElementById('bcTxt').textContent='Parar Transmissão'; document.getElementById('bcBadge').style.display='';
@@ -2482,7 +2493,7 @@ function stopBroadcasterSignaling() {
   });
 }
 
-function stopBroadcastInternal(){ if(bcPC){try{bcPC.close();}catch(e){}bcPC=null;} if(bcChan){try{bcChan.close();}catch(e){}bcChan=null;} if(bcStream){bcStream.getTracks().forEach(t=>t.stop());bcStream=null;} }
+function stopBroadcastInternal(){ if(window._bcOfferTimer){clearTimeout(window._bcOfferTimer);window._bcOfferTimer=null;} if(bcPC){try{bcPC.close();}catch(e){}bcPC=null;} if(bcChan){try{bcChan.close();}catch(e){}bcChan=null;} if(bcStream){bcStream.getTracks().forEach(t=>t.stop());bcStream=null;} }
 function stopBroadcast(){ 
   stopBroadcastInternal();
   stopBroadcasterSignaling();
