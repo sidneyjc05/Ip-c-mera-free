@@ -120,8 +120,8 @@
     flex-direction: column;
     height: 100vh;
     min-width: 0;
-    padding: 14px 18px;
-    gap: 10px;
+    padding: 10px 14px;
+    gap: 8px;
     overflow: hidden;
   }
 
@@ -130,11 +130,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 10px;
     background: var(--card);
     border: 1px solid var(--border-subtle);
     border-radius: var(--rs);
-    padding: 10px 14px;
+    padding: 8px 12px;
     flex-shrink: 0;
   }
   .studio-brand {
@@ -154,7 +154,7 @@
   }
   .studio-title-wrap { min-width: 0; }
   h1 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.01em;
     line-height: 1.2;
@@ -170,7 +170,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
   }
   .studio-sources-actions {
     display: flex;
@@ -276,31 +277,41 @@
     background: var(--card);
     border: 1px solid var(--border-subtle);
     border-radius: var(--r);
-    padding: 10px;
-    gap: 8px;
+    padding: 8px 10px;
+    gap: 6px;
     overflow: hidden;
   }
-  .prev-box {
-    width: 100%;
+  .prev-stage {
     flex: 1;
     min-height: 0;
+    width: 100%;
+    container-type: size;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
     background: var(--bg2);
     border-radius: 10px;
+    border: 1px solid var(--border-subtle);
+  }
+  .prev-box {
+    width: min(100cqw, calc(100cqh * var(--cam-ar, 16 / 9)));
+    height: min(100cqh, calc(100cqw / var(--cam-ar, 16 / 9)));
+    max-width: 100%;
+    max-height: 100%;
+    background: var(--bg2);
+    border-radius: 8px;
     position: relative;
     overflow: hidden;
-    border: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .prev-box.portrait {
-    aspect-ratio: 9 / 16 !important;
-    width: auto;
-    max-width: 100%;
-    height: 100%;
-    margin: 0 auto;
+    width: min(100cqw, calc(100cqh * var(--cam-ar, 9 / 16)));
+    height: min(100cqh, calc(100cqw / var(--cam-ar, 9 / 16)));
   }
-  .prev-box.live { border-color: rgba(16, 185, 129, 0.35); }
+  .prev-box.live { box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35); }
   .prev-box canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
   .prev-ph { color: var(--text2); text-align: center; padding: 20px; }
   .prev-ph svg { opacity: .2; margin-bottom: 8px; }
@@ -559,11 +570,11 @@
   .ctrl-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
+    gap: 8px;
+    margin-bottom: 11px;
   }
   .ctrl-lbl {
-    width: 96px;
+    width: 84px;
     font-size: 12px;
     font-weight: 500;
     color: var(--text2);
@@ -571,7 +582,7 @@
   }
   .ctrl-body { flex: 1; min-width: 0; }
   .val-disp {
-    min-width: 44px;
+    min-width: 40px;
     text-align: right;
     font-size: 12px;
     font-weight: 600;
@@ -621,10 +632,12 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     width: 100%;
+    min-width: 0;
   }
   .tog-btn {
     flex: 1;
-    padding: 5px 8px;
+    min-width: 0;
+    padding: 5px 5px;
     border-radius: 6px;
     border: none;
     background: transparent;
@@ -634,6 +647,8 @@
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: background-color .15s, color .15s;
   }
   .tog-btn:hover:not(.on) { color: var(--text); background: rgba(255, 255, 255, 0.04); }
@@ -777,8 +792,17 @@
     .studio-header {
       flex-wrap: wrap;
     }
-    .prev-box {
+    .studio-status-cluster {
+      flex-wrap: wrap;
+    }
+    .prev-stage {
       flex: none;
+      container-type: normal;
+      height: auto;
+    }
+    .prev-box {
+      width: 100%;
+      height: auto;
       aspect-ratio: 16 / 9;
       min-height: 210px;
     }
@@ -903,10 +927,12 @@
       </div>
 
       <section class="studio-preview-wrap">
-        <div class="prev-box" id="prevBox">
-          <div class="prev-ph" id="prevPh">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            <div>Selecione uma câmera para iniciar</div>
+        <div class="prev-stage">
+          <div class="prev-box" id="prevBox">
+            <div class="prev-ph" id="prevPh">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <div>Selecione uma câmera para iniciar</div>
+            </div>
           </div>
         </div>
 
@@ -1671,6 +1697,7 @@ async function startScreenShare(){
     document.getElementById('iId').textContent='screen'; document.getElementById('iLabel').textContent=track.label||'Tela';
     document.getElementById('sRes').textContent=(cur.width||1920)+'x'+(cur.height||1080);
     document.getElementById('sFps').textContent=Math.round(cur.frameRate||30);
+    document.getElementById('sCodec').textContent=cfg.codec==='auto'?'Auto':cfg.codec;
     
     setupPreview(cur.width||1920,cur.height||1080);
     
@@ -1698,6 +1725,30 @@ function renderCamList(){
   }).join('');
 }
 
+async function applyTargetFrameRate(track, desiredFps) {
+  if (!track || !track.applyConstraints) return;
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const maxCap = (caps.frameRate && caps.frameRate.max) ? Math.round(caps.frameRate.max) : 60;
+  const minCap = (caps.frameRate && caps.frameRate.min) ? Math.round(caps.frameRate.min) : 1;
+  const target = Math.min(maxCap, Math.max(minCap, Number(desiredFps) || 30));
+
+  const attempts = [
+    { frameRate: { min: target, ideal: target, max: target } },
+    { frameRate: { min: Math.min(target, Math.max(minCap, 30)), ideal: target, max: target } },
+    { frameRate: { ideal: target, max: target } },
+    { frameRate: { ideal: target } }
+  ];
+
+  for (const constraint of attempts) {
+    try {
+      await track.applyConstraints(constraint);
+      break;
+    } catch (e) {
+      // Try next relaxed frameRate constraint
+    }
+  }
+}
+
 async function selectDev(id){
   if (screenShareMode && rawStream) {
     rawStream.getTracks().forEach(t => t.stop());
@@ -1713,13 +1764,18 @@ async function selectDev(id){
   selDevId=id;renderCamList(); screenShareMode=false;
   
   const[w,h]=cfg.res.split('x').map(Number);
+  const minWantedFps = Math.min(cfg.fps, 30);
   try{ 
-    rawStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id},width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});
+    rawStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id},width:{ideal:w},height:{ideal:h},frameRate:{min:minWantedFps,ideal:cfg.fps}},audio:audioEnabled});
   }catch(err){ 
-    try{rawStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});}catch(e2){toast('Erro: '+e2.message);return;} 
+    try{rawStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:id},width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});}
+    catch(e2){
+      try{rawStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:w},height:{ideal:h},frameRate:{ideal:cfg.fps}},audio:audioEnabled});}catch(e3){toast('Erro: '+e3.message);return;}
+    }
   }
   
   const track=rawStream.getVideoTracks()[0];
+  await applyTargetFrameRate(track, cfg.fps);
   const caps=track.getCapabilities?track.getCapabilities():{}; const cur=track.getSettings?track.getSettings():{};
   track.onmute = () => toast('Aviso: Câmera pausada pelo Android (aba oculta).');
   track.onunmute = () => toast('Câmera retomada.');
@@ -1733,6 +1789,8 @@ async function selectDev(id){
   document.getElementById('iFacing').textContent=caps.facingMode?.[0]||cur.facingMode||'—';
   
   document.getElementById('sRes').textContent=(cur.width||w)+'x'+(cur.height||h);
+  document.getElementById('sFps').textContent=Math.round(cur.frameRate||cfg.fps);
+  document.getElementById('sCodec').textContent=cfg.codec==='auto'?'Auto':cfg.codec;
   
   setupPreview(cur.width||w,cur.height||h); saveSettings();
   
@@ -1769,7 +1827,7 @@ function updateBroadcastTracks() {
         // Parar tracks antigas de vídeo para liberar recursos
         bcStream.getVideoTracks().forEach(t => { try { t.stop(); } catch(e) {} });
       }
-      bcStream = cvsEl.captureStream();
+      bcStream = cvsEl.captureStream(cfg.fps || 30);
       if (audioEnabled && rawStream) {
         rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t));
       }
@@ -1833,11 +1891,13 @@ function setupPreview(w,h){
   if(orientation==='portrait')box.classList.add('portrait'); else box.classList.remove('portrait');
   document.getElementById('liveBadge').style.display='';
   vidEl=document.createElement('video'); vidEl.srcObject=rawStream;vidEl.autoplay=true;vidEl.playsInline=true;vidEl.muted=true;
-  vidEl.style.display='none';document.body.appendChild(vidEl); vidEl.play().catch(()=>{});
+  vidEl.style.cssText='position:fixed;top:-9999px;left:-9999px;width:2px;height:2px;opacity:0.001;pointer-events:none;';
+  document.body.appendChild(vidEl); vidEl.play().catch(()=>{});
   cvsEl=document.createElement('canvas');
   if(orientation==='portrait'){cvsEl.width=Math.min(w,h);cvsEl.height=Math.max(w,h);}else{cvsEl.width=w;cvsEl.height=h;}
+  box.style.setProperty('--cam-ar', `${cvsEl.width} / ${cvsEl.height}`);
   cvsEl.style.width='100%';cvsEl.style.height='100%';
-  cvsEl.style.objectFit=videoFit || 'contain';
+  cvsEl.style.objectFit='contain';
   ctx=cvsEl.getContext('2d'); box.appendChild(cvsEl);
   
   const borderOverlay = document.createElement('div');
@@ -1849,7 +1909,7 @@ function setupPreview(w,h){
 
   const ol=document.createElement('div');ol.className='prev-ol';ol.innerHTML='<div class="rec-dot"></div><span>LIVE</span>';box.appendChild(ol);
   const fp=document.createElement('div');fp.className='prev-fps';fp.id='pFps';fp.textContent='0 FPS';box.appendChild(fp);
-  drawing=true;lastFpsT=performance.now();fpsCount=0; drawLoop();
+  drawing=true;lastFpsT=performance.now();lastDrawT=0;fpsCount=0; drawLoop();
 }
 
 function drawLoop(fromWorker = false){
@@ -1908,7 +1968,12 @@ function drawLoop(fromWorker = false){
   }
   if(motionOn&&drawing)detectMotion();
   fpsCount++; const now2=performance.now();
-  if(now2-lastFpsT>=1000){ const el=document.getElementById('pFps'); if(el)el.textContent=fpsCount+' FPS'; fpsCount=0;lastFpsT=now2; }
+  if(now2-lastFpsT>=1000){
+    const realFps=Math.round((fpsCount*1000)/Math.max(1,now2-lastFpsT));
+    const el=document.getElementById('pFps'); if(el)el.textContent=realFps+' FPS';
+    const sFpsEl=document.getElementById('sFps'); if(sFpsEl)sFpsEl.textContent=realFps;
+    fpsCount=0;lastFpsT=now2;
+  }
   
   if(!document.hidden) {
     if ('requestVideoFrameCallback' in vidEl) vidEl.requestVideoFrameCallback(() => drawLoop(false));
@@ -1989,6 +2054,7 @@ function setShadowGamma(v) {
     }, 180);
   }
 }
+let fpsConstraintTimer = null;
 function setSetting(k,v){
   cfg[k]=Number(v);
   const elId = k === 'fps' ? 'vFpsVal' : 'v'+k.charAt(0).toUpperCase()+k.slice(1);
@@ -1996,18 +2062,27 @@ function setSetting(k,v){
   if (el) el.textContent = v + (k==='fps'?'':'%');
   saveSettings();
   if (k === 'fps') {
-    if (rawStream) {
-      const track = rawStream.getVideoTracks()[0];
-      if (track && track.applyConstraints) {
-        track.applyConstraints({ frameRate: { ideal: cfg.fps, max: cfg.fps } }).catch(e => console.warn(e));
+    clearTimeout(fpsConstraintTimer);
+    fpsConstraintTimer = setTimeout(async () => {
+      if (rawStream) {
+        const track = rawStream.getVideoTracks()[0];
+        if (track) {
+          await applyTargetFrameRate(track, cfg.fps);
+        }
       }
-    }
-    if (broadcasting) {
-      updateBroadcastTracks();
-    }
+      if (broadcasting) {
+        updateBroadcastTracks();
+      }
+    }, 150);
   }
 }
-function setCodec(v){ cfg.codec=v; saveSettings(); if(broadcasting) { stopBroadcast(); setTimeout(()=>startBroadcast(), 100); } }
+function setCodec(v){
+  cfg.codec=v;
+  const sCodecEl=document.getElementById('sCodec');
+  if(sCodecEl)sCodecEl.textContent=cfg.codec==='auto'?'Auto':cfg.codec;
+  saveSettings();
+  if(broadcasting) { stopBroadcast(); setTimeout(()=>startBroadcast(), 100); }
+}
 function setBitrate(v){ cfg.bitrate=Number(v); document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M'; saveSettings(); }
 function setAudio(btn,on){ audioEnabled=on; btn.parentElement.querySelectorAll('.tog-btn').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); saveSettings(); if(selDevId)selectDev(selDevId); }
 async function setHw(k, v) {
@@ -2085,7 +2160,7 @@ async function toggleBroadcast(){ if(broadcasting)stopBroadcast(); else await st
 async function startBroadcast(){
   if(broadcasting) return;
   if(!cvsEl){toast('Inicie uma câmera primeiro');return;}
-  try{ bcStream=cvsEl.captureStream(); if(audioEnabled && rawStream) rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t)); }catch(e){return;}
+  try{ bcStream=cvsEl.captureStream(cfg.fps || 30); if(audioEnabled && rawStream) rawStream.getAudioTracks().forEach(t => bcStream.addTrack(t)); }catch(e){return;}
   bcPC=new RTCPeerConnection({iceServers:ICE_SERVERS}); bcPC.pendingCandidates=[];
   
   const senders=[];
@@ -2433,7 +2508,7 @@ async function acceptAnswer(){
 function toggleRecord(){
   if(!cvsEl)return;
   if(!recording){
-    recChunks=[]; let stream; try{stream=cvsEl.captureStream();}catch(e){return;}
+    recChunks=[]; let stream; try{stream=cvsEl.captureStream(cfg.fps || 30);}catch(e){return;}
     let mime='video/webm;codecs=vp9'; if(!MediaRecorder.isTypeSupported(mime))mime='video/webm;codecs=vp8';
     try{ mediaRec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:Math.round(cfg.quality*50000)}); }catch(e){mediaRec=new MediaRecorder(stream);}
     mediaRec.ondataavailable=e=>{if(e.data.size>0)recChunks.push(e.data);};
@@ -2519,6 +2594,8 @@ function loadSettings(){
   if (vFpsValEl) vFpsValEl.textContent = cfg.fps;
   document.getElementById('rBitrate').value=cfg.bitrate; document.getElementById('vBitrate').textContent=(cfg.bitrate/1000).toFixed(1)+'M';
   document.getElementById('selCodec').value=cfg.codec;
+  const sCodecEl = document.getElementById('sCodec');
+  if (sCodecEl) sCodecEl.textContent = cfg.codec === 'auto' ? 'Auto' : cfg.codec;
   document.querySelectorAll('#resGrp .tog-btn').forEach(b=>{ b.classList.toggle('on',b.dataset.r===cfg.res); });
   
   // Atualizar botões de Ajuste de Vídeo (Fit)
@@ -2609,7 +2686,7 @@ function applyPreviewBorder() {
   const canvas = document.querySelector('#prevBox canvas');
   
   if (canvas) {
-    canvas.style.objectFit = videoFit || 'contain';
+    canvas.style.objectFit = 'contain';
   }
   
   if (overlay) {
