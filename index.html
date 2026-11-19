@@ -929,9 +929,9 @@
       <section class="studio-preview-wrap">
         <div class="prev-stage">
           <div class="prev-box" id="prevBox">
-            <div class="prev-ph" id="prevPh">
+            <div class="prev-ph" id="prevPh" onclick="if(devices.length>0)selectDev(devices[0].deviceId);else startScan();" style="cursor:pointer;" title="Clique para ativar a câmera">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              <div>Selecione uma câmera para iniciar</div>
+              <div>Clique aqui para ativar a câmera</div>
             </div>
           </div>
         </div>
@@ -1651,28 +1651,48 @@ async function manualViewerConnect(){
 function copyViewerAnswer(){ const t=document.getElementById('vAnswerTxt').value; if(t) cpClip(t); else toast('Aguarde a resposta'); }
 
 // MODO CONTROLE (TRANSMISSOR)
-function initControl(){ updateLink(); renderCamList(); loadSettings(); }
+function initControl(){ 
+  updateLink(); 
+  renderCamList(); 
+  loadSettings(); 
+  setTimeout(() => {
+    if (!rawStream && devices.length === 0) {
+      startScan();
+    }
+  }, 400);
+}
 function updateLink(){ const base=location.protocol+'//'+location.host+location.pathname; document.getElementById('txLink').textContent=base+'?view='+VID; }
 function copyLink(){ cpClip(document.getElementById('txLink').textContent); }
 function openViewTab(){ window.open(location.protocol+'//'+location.host+location.pathname+'?view='+VID,'_blank'); }
 
 async function startScan(){
   const btn=document.getElementById('scanBtn'), badge=document.getElementById('scanBadge'), bar=document.getElementById('scanProg');
-  btn.disabled=true;badge.className='badge b-scan';badge.textContent='Scanning...';
+  if(btn) btn.disabled=true;
+  if(badge){badge.className='badge b-scan';badge.textContent='Scanning...';}
   try{
     const tmp=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
     tmp.getTracks().forEach(t=>t.stop());
     const all=await navigator.mediaDevices.enumerateDevices();
     devices=all.filter(d=>d.kind==='videoinput');
     let p=0; const iv=setInterval(()=>{
-      p+=12;bar.style.width=Math.min(p,100)+'%';
+      p+=20; if(bar) bar.style.width=Math.min(p,100)+'%';
       if(p>=100){
-        clearInterval(iv);bar.style.width='0%';btn.disabled=false;
-        badge.className='badge b-on';badge.textContent=devices.length+' encontrada(s)';
-        renderCamList();toast(devices.length+' câmera(s) detectada(s)');
+        clearInterval(iv);
+        if(bar) bar.style.width='0%';
+        if(btn) btn.disabled=false;
+        if(badge){badge.className='badge b-on';badge.textContent=devices.length+' encontrada(s)';}
+        renderCamList();
+        toast(devices.length+' câmera(s) detectada(s)');
+        if(devices.length > 0 && !selDevId && !rawStream){
+          selectDev(devices[0].deviceId);
+        }
       }
-    },70);
-  }catch(err){ btn.disabled=false;badge.className='badge b-off';badge.textContent='Negado';toast('Permissão negada'); }
+    },50);
+  }catch(err){ 
+    if(btn) btn.disabled=false;
+    if(badge){badge.className='badge b-off';badge.textContent='Negado';}
+    toast('Permissão de câmera negada ou indisponível'); 
+  }
 }
 
 async function startScreenShare(){
@@ -1893,9 +1913,20 @@ function setupPreview(w,h){
   box.innerHTML='';box.classList.add('live');
   if(orientation==='portrait')box.classList.add('portrait'); else box.classList.remove('portrait');
   document.getElementById('liveBadge').style.display='';
-  vidEl=document.createElement('video'); vidEl.srcObject=rawStream;vidEl.autoplay=true;vidEl.playsInline=true;vidEl.muted=true;
+  vidEl=document.createElement('video'); 
+  vidEl.srcObject=rawStream;
+  vidEl.autoplay=true;
+  vidEl.playsInline=true;
+  vidEl.muted=true;
+  vidEl.setAttribute('autoplay', '');
+  vidEl.setAttribute('playsinline', '');
+  vidEl.setAttribute('muted', '');
   vidEl.style.cssText='position:fixed;top:-9999px;left:-9999px;width:2px;height:2px;opacity:0.001;pointer-events:none;';
-  document.body.appendChild(vidEl); vidEl.play().catch(()=>{});
+  document.body.appendChild(vidEl); 
+  vidEl.play().catch(e => {
+    console.warn("Autoplay attempt failed, retrying...", e);
+    setTimeout(() => { if(vidEl) vidEl.play().catch(()=>{}); }, 300);
+  });
   cvsEl=document.createElement('canvas');
   if(orientation==='portrait'){cvsEl.width=Math.min(w,h);cvsEl.height=Math.max(w,h);}else{cvsEl.width=w;cvsEl.height=h;}
   box.style.setProperty('--cam-ar', `${cvsEl.width} / ${cvsEl.height}`);
